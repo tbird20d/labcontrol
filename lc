@@ -930,7 +930,7 @@ def do_list_objects(conf, obj_type, options):
     indent = show_list_title("%ss on the LabControl server:" % obj_type)
     if obj_list:
         for obj in obj_list:
-            print indent + req
+            print indent + obj
     else:
         if options:
             extra_msg = " that match the specified criteria"
