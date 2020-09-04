@@ -945,6 +945,11 @@ def do_list_objects(conf, obj_type, options):
 def do_list_boards(conf, options):
     do_list_objects(conf, "board", options)
 
+def do_list_resources(conf, options):
+    do_list_objects(conf, "resource", options)
+
+def do_list_requests(conf, options):
+    do_list_objects(conf, "request", options)
 
 # returns dictionary for the request
 def get_request(conf, req_id):
