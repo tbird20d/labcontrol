@@ -1,0 +1,1929 @@
+#!/usr/bin/python
+#
+# vim: set ts=4 sw=4 et :
+#
+# lc - 'lab control' - a tool for interacting with the LabControl server
+#  and for accessing lab information and controlling lab resources,
+#  for test programs
+#
+# some material, and lots of style, copied from ftc
+#
+# Copyright 2020 Sony Corporation
+#
+# Need to decide on a license.  this code is all original, so I can
+# choose what I want.
+#
+# Author: Tim Bird  <tim.bird (at) sony.com>
+#
+# To Do:
+#   create set of commands (these will be similar to ttc verbs)
+#     lc list-boards
+#     lc
+#   send commands to server for data
+#
+
+# only import enough to get to container dispatcher in main()
+import os
+import sys
+import subprocess
+
+# delay other imports until we're sure we're running in the container
+re = None
+time = None
+copy2 = None
+signal = None
+fcntl = None
+requests = None
+json = None
+getopt = None
+shutil = None
+tempfile = None
+glob = None
+
+# import jenkins later
+#import jenkins
+jenkins = None
+
+# MAJOR, MINOR, REVISION, extra_revision
+# extra_revision, if non-empty, should start with a dash
+# (e.g. "-next", "-rc1")
+VERSION = (0, 6, 0, "")
+
+# define these as globals
+log = None
+tail_fd = None
+quiet = False
+verbose = False
+debug = False
+
+default_config_filepath = "/etc/lc.conf"
+
+# This is the name of the environment variable
+# used to keep track of the current board
+BOARD_ENV_VAR = "LC_BOARD"
+
+where_help = \
+"""The --where option can be used to specify one or more 'where' specifiers
+  to filter the list of runs. Each where clause is separated by a comma.
+  A 'where clause' consists of a field_name, an operator and a value.
+  Allowed field names are: test, type, spec, board, start_time, result,
+  batch_id, status, build_number, tguid, and tguid:result.
+  Allowed operators are: '=','<','<=','>','>=','!=','=~'.  The '=~' operator
+  means the value is a regular expression to match, for the indicated field.
+  Here are some example where options:
+     --where test=LTP
+     --where test=bonnie,board=beaglebone
+     --where "start_time>2 hours ago"
+     --where batch_id=12
+     --where tguid=~.*udp.*
+     --where tguid:result=FAIL"""
+
+# format for command_help mapping with: key=name, value=(summary, long description)
+command_help = {
+"config": ("Show Lab Control configuration setting.",
+    """Usage: lc config <name>
+  Shows the value for the indicated configuration option
+
+  If no name is specified, shows all configuration items.
+"""),
+
+"add-board": ("Registers a new board with Lab Control.",
+    """Usage: lc add-board < board.json
+  Use list-boards to see the existing boards registered with the
+  server.
+
+  See the documentation for format of the board.json file."""),
+
+"list-boards": ("Show a list of registered boards.",
+    """Usage: lc list-boards [-q] [<criteria> ...]
+  Prints board names.
+
+  Options:
+    -q         Use "quiet" mode.  This prints only the board names, with no
+               additional information. This is suitable for piping to other
+               commands.
+    <criteria> Filter boards using the specified criteria.
+
+Each criteria is specified as string containing <name>=<value>, such as:
+host=timslab.  Asterisk (*) may be used at the beginning or end
+of the value, to indicate a wildcard match. Multiple criteria strings
+may be specified, and are separated with a space.
+
+Allowed names in criteria patterns are: 'host', 'board'.
+
+ex: lc list-boards host=timslab board=b*
+
+The result is a list of boards that match the criteria.  If no
+criteria are specified, all boards are listed.
+"""),
+
+"list-resources": ("Show a list of available resources.",
+    """Usage: lc list-resources
+  Prints resource names and summary information, if any.
+
+Each criteria is specified as string containing <name>=<value>, such as:
+name=power*.  Asterisk (*) may be used at the beginning or end
+of the value, to indicate a wildcard match. Multiple criteria strings
+may be specified, and are separated with a space.
+"""),
+
+"query-board": ("Show information about a board.",
+    """Usage: lc query-board -b <board> [-q] [-n <attr>]
+  Show information about an object.  Use the '-n' option to display
+  the value of a single attribute, <attr>.  Use '-q' to show the
+  attribute names only.
+"""),
+
+"query-request": ("Show information about a request.",
+    """Usage: lc query-request <request-id> [-n <attr>]
+  Show information about an request.  By default, show
+  all the attributes of the object.  Use the '-n' option
+  to display the value of a single attribute, <attr>."""),
+
+"help": ("Show this online help.",
+    """Usage: lc help [<command>]
+  If a command is specified, show the usage information for that command."""),
+
+"version": ("Show version information and exit.", ""),
+
+"put-request": ("Put a new lab request on the server.",
+    """Usage: lc put-request ... [options]
+Put a request on the server to perform the indicated operation.
+
+  ....
+"""),
+
+
+"rm-request": ("Remove a operation request.",
+    """Usage: lc rm-request <request_id>
+
+The request_id is a request identifier on the server (which can be queried
+for with 'lc list-requests')."""),
+
+"wait-for": ("Wait for a condition to be true.",
+    """Usage: lc wait-for [-i <interval>] [-t <timeout>] <command>
+
+The command is run periodically until it returns 0.  By default,
+the interval between executing the command is 5 seconds.
+Use -i to specify a different interval, and -t to specify a
+maximum time to wait.  Both are expressed in seconds.
+
+   ex: lc wait-for -i 2 -t 100 "test -f /tmp/outfile"
+
+This will check every two seconds to see if /tmp/outfile exists,
+waiting no longer than 100 seconds total. The exit code from
+'lc' is the exit code of the last invocation of the
+command (0 on success)."""),
+
+"reserve": ("Reserve a board or resource for use.",
+    """Usage: lc reserve [-f] [board] <name>
+
+Reserve the named resource.  Currently, only boards may be reserved.
+A message and the exit code indicate whether the resource is
+already reserved.
+
+If -f is specified, then the reservation is 'forced' and any
+current reservation is overridden with the new one.
+
+   ex: lc reserve board beaglebone"""),
+
+"release": ("Release a reservation on a board or resource.",
+    """Usage: lc release [board] <name>
+
+Release the named board or resource.
+A message and the exit code indicate if the resource was released.
+
+   ex: lc release board beaglebone"""),
+
+"power-on": ("Power on the selected board.",
+    """Usage: lc power-on board <board1>[,<board2>...]
+
+This command can be used to power on a board. The board file must
+contain a definition for BOARD_CONTROL (e.g., pdudaemon or ttc) and
+the corresponding options (see README.pdu).
+
+Example: lc power-on board raspberrypi3"""),
+
+"power-off": ("Power off the selected board.",
+    """Usage: lc power-off board <board1>[,<board2>...]
+
+This command can be used to power off a board. The board file must
+contain a definition for BOARD_CONTROL (e.g., pdudaemon or ttc) and
+the corresponding options (see README.pdu).
+
+Example: lc power-off board raspberrypi3"""),
+
+"power-cycle": ("Power cycle the selected board.",
+    """Usage: lc power-off board <board1>[,<board2>...]
+
+This command can be used to power cycle (reboot) a board. The board file must
+contain a definition for BOARD_CONTROL (e.g., pdudaemon or ttc) and
+the corresponding options (see README.pdu).
+
+Example: lc power-cycle board raspberrypi3"""),
+
+"list-requests": ("List requests matching a criteria.",
+    """Usage: lc list-requests [<criteria> ...]
+
+Lookup requests in Lab Control , finding matches for specific criteria.
+Each criteria is specified as string containing <name>=<value>, such as:
+host=tims_desktop.  Asterisk (*) may be used at the beginning or end
+of the value, to indicate a wildcard match.
+
+Allowed names are: 'name', 'resource', 'state', 'requestor',
+  and 'request_time'.
+
+ex: lc list-requests type=power-*
+
+The result is a list of request that match the criteria.  If no
+criteria are specified, all requests on the server are listed.
+"""),
+
+}
+
+# define the log-level based output routines
+# Note that not every print should be converted.
+#  if a print statement is fundamentally part of the execution
+#  of a command (e.g. the actual data from a command), it should
+#  continue to use 'print()', rather than these level-based
+#  functions.
+def dprint(msg):
+    global ll_debug
+    if ll_debug:
+        print("DEBUG: " + msg)
+
+# here's a utility routine to print a variable with it's name and value
+def dvar(name):
+    global ll_debug
+    # could call dprint, but I want to avoid the lookup if we're not debugging
+    if ll_debug:
+        caller = sys._getframe(1)
+        print("DEBUG: python var %s=%s" % (name, caller.f_locals[name]))
+
+def vprint(msg):
+    global verbose
+    if verbose:
+        print(msg)
+
+
+class config_class:
+    def __init__(self, config_path):
+        # read configuration data from a file
+        try:
+            data = open(config_path, "r").read()
+        except:
+            error_out("ERROR: could not read LabControl configuration data from %s" % config_path)
+
+        conf_map = self.parse_conf(data)
+
+        # set values from conf_map
+        self.host = conf_map.get("host", "localhost")
+        self.user = conf_map.get("user", "lc_user")
+        self.server = conf_map.get("server", "localhost:8000")
+        self.default_board = conf_map.get("default_board", "")
+        self.SERVER_URL_BASE = "http://%s/lcserver.py/?action=" % self.server
+
+    # fuego configuration file syntax:
+    # ------------------------
+    # empty lines and lines starting with # are ignored
+    # single-line attribute:
+    # name=value
+    # multi-line attribute:
+    # name="""value line 1
+    # line 2, etc."""
+
+    # returns a map with key/value pairs for each item.
+    def parse_conf(self, data):
+        attr_map = {}
+        lines = data.split('\n')
+        line_no = 0
+        in_block = 0
+        block = ""
+        for line in lines:
+            line_no += 1
+            if in_block:
+                # try to find end of block
+                if line.rstrip().endswith('"""'):
+                    # remove quotes and end block
+                    line = line.rstrip()
+                    block += line[:-3]
+                    attr_map[attr] = block
+                    in_block = 0
+                    continue
+                else:
+                    block += line + '\n'
+                    continue
+
+            # ignore comments
+            if line.startswith("#"):
+                continue
+
+            # ignore empty lines
+            line = line.strip()
+            if not line:
+                continue
+
+            # if we're outside a block, look for name=value lines
+
+            # line should have an equals in it
+            # (either single line name=value, or multi-line block start)
+            if line.find("=") == -1:
+                print("ERROR: Missing '=' at line %d in Fuego config file" % line_no)
+                continue
+
+            (attr, value) = line.split('=', 1)
+            attr = attr.strip()
+            value = value.strip()
+            if value.find('"""') == -1:
+                # if a single-line, just record the attribute
+                if value.startswith('"') and value.endswith('"'):
+                    # remove single-quotes
+                    # (if value needs quotes, enclose in triple-quotes)
+                    value = value[1:-1]
+                attr_map[attr] = value
+            else:
+                # if the start of a multi-line block...
+                vstart = value.find('"""')
+                block = value[vstart+3:] + '\n'
+                in_block = 1
+                # sanity check for block terminator on same line
+                # if this line has triple-quotes, then the
+                # block begins and ends on the same line.
+                if block.endswith('"""\n'):
+                    block = block[:block.index('"""')]
+                    attr_map[attr] = block
+                    in_block = 0
+                # NOTE: there's a weird corner case with a line like:
+                # 'my_attr=""" foo bar """ more stuff '
+                # this will not terminate the block
+
+        # check for dangling material
+        if in_block:
+            print('ERROR: Syntax error in configuration file.')
+            print('Missing """ at end of multiline value for item "%s", at end of file' % attr)
+            attr_map[attr] = block
+
+        return attr_map
+
+
+def usage(rcode, options=[]):
+    command = ""
+    if len(options):
+        command = options[0]
+
+    # check if command is legal
+    if command and command not in command_help.keys():
+        print "Unknown command: %s" % command
+        command = ""
+        # drop through to showing list of commands
+
+    if not command:
+        # show list of commands
+        print """Usage: lc [global_options] command [options]
+
+Here are the available global options:
+ -h, --help     Show this usage help
+ -v             Be verbose
+ -q             Be quiet
+ -c <conf_file> Use specified configuration file
+ --debug        Show debugging information
+
+command is one of:
+"""
+        command_list = command_help.keys()
+        command_list.sort()
+        for command in command_list:
+            print "  %13s %s" % (command, command_help[command][0])
+    else:
+        # print help for individual command
+        print "lc %s: %s" % (command, command_help[command][0])
+        if command_help[command][1]:
+            print
+            print command_help[command][1]
+
+    sys.exit(rcode)
+
+def print_error(message):
+    sys.stderr.write("Error: "+message+"\n")
+    sys.stderr.flush()
+
+def error_out(message, rcode=1):
+    print_error(message)
+    sys.exit(rcode)
+
+class board_class:
+    def __init__(self, name, board_path, dist_path, env_vars):
+        self.name = name
+        self.board_path = board_path
+        self.dist_path = dist_path
+        if env_vars:
+            self.env_vars = env_vars
+        else:
+            self.env_vars = {}
+
+
+    def write_run_json_file(self, output_dir="."):
+        # FIXTHIS - run_class is not up-to-date with fuego-schema.json
+        keylist = ["test_name", "timestamp", "num", "host", "board",
+            "result", "device", "reboot", "rebuild", "testplan", "precleanup", "postcleanup",
+            "start_time", "description", "duration", "charset", "keep_log",
+            "built_on", "workspace", "cause",
+            "files"]
+
+        run_map = {}
+        for key in keylist:
+            try:
+                run_map[key] = self.__dict__[key]
+            except:
+                run_map[key] = "unknown"
+
+        jpath = output_dir+os.sep+"run.json"
+        outfile = open(jpath, "w")
+        json.dump(run_map, outfile, sort_keys=True, indent=4, ensure_ascii=False)
+        outfile.close()
+
+def dequote(str):
+    if str.startswith('"') and str.endswith('"'):
+        return str[1:-1]
+    else:
+        return str
+
+
+# process single-line VAR=VALUE lines
+# as well as function blocks
+# function foo () {
+# }
+# override-func foo() {
+# }
+# override VAR=VALUE
+def parse_shell_file(path, conf):
+    var_map = {}
+    fd = open(path)
+
+    in_block = 0
+    block = ""
+    line_no = 0
+    for line in fd.readlines():
+        #print "%d: %s" % (line_no, line),
+        line_no += 1
+        # check for comments
+        if line.lstrip().startswith("#"):
+            continue
+
+        if in_block:
+            # try to find end of block
+            if line.lstrip().startswith('}'):
+                # I hope this is the function closing brace
+                block += line
+                var_map[name] = block
+                in_block = 0
+                continue
+            else:
+                block += line
+                continue
+
+        # check for empty line
+        if not line.strip():
+            continue
+
+        if line.startswith("function "):
+            parts = line.split()
+            name = parts[1]
+            if name.endswith("()"):
+                name = name[:-2]
+            name = "function_%s" % name
+            block = line
+            in_block = 1
+            continue
+
+        if line.startswith("override-func "):
+            parts = line.split()
+            name = parts[1]
+            if name.endswith("()"):
+                name = name[:-2]
+            name = "override function_%s" % name
+            # convert 'override-func' in line to 'function'
+            block = "function"+line[13:]
+            in_block = 1
+            continue
+
+        # handle 'inherit' lines in board file
+        if line.startswith('inherit'):
+            inh_file = dequote(line[8:].strip())
+            inh_vars = get_superclass(inh_file, conf)
+            if not var_map.has_key("INHERITS"):
+                var_map["INHERITS"] = [ inh_vars ]
+            else:
+                var_map["INHERITS"].append(inh_vars)
+            var_map.update(inh_vars)
+            continue
+
+        # handle 'include' lines in board file
+        if line.startswith('include'):
+            inc_file = dequote(line[8:].strip())
+            inc_vars = get_includes(inc_file, conf)
+            if not var_map.has_key("INCLUDES"):
+                var_map["INCLUDES"] = [ inc_vars ]
+            else:
+                var_map["INCLUDES"].append(inc_vars)
+            continue
+
+        if line.find("=") == -1:
+            print_error("Syntax error in file %s: Expected '=' at line %d\n%s" % (path, line_no, line))
+            continue
+
+        (name, value) = line.split('=', 1)
+        value = value.strip()
+        if value.startswith('"') and value.endswith('"'):
+            value = value[1:-1]
+        name = name.strip()
+        var_map[name] = value
+
+    fd.close()
+
+    return var_map
+
+# read an argument (e.g. --foo bar) from options
+# returns the text value of the argument, or None if the option was not found
+# options is modified to eliminate the items parsed
+def get_option_arg(options, opt_name):
+    arg_flag = "--"+opt_name
+    arg_value = None
+    if arg_flag in options:
+        pos = options.index(arg_flag)
+        try:
+            arg_value = options[pos + 1]
+        except IndexError:
+            error_out('Value not provided after %s' % arg_flag)
+        del(options[pos+1])
+        del(options[pos])
+
+    return arg_value
+
+# read a boolean argument (e.g. --rebuild false) from options
+# returns the text value of the option (either 'true' or 'false')
+#    or None if the option is not present
+# options is modified to eliminate the items parsed
+# dest_dict is modified to add the parsed argument
+def get_boolean_arg(options, opt_name, dest_dict):
+    arg_value = get_option_arg(options, opt_name)
+    if arg_value:
+        # validate the value
+        if arg_value not in ['true', 'false']:
+            error_out("Invalid %s option '%s'" % (opt_name, arg_value))
+        dest_dict[opt_name] = arg_value
+    return arg_value
+
+# checks options for '--timeout' and '-k'
+# returns the value for the timeout argument
+# updates dest_dict["timeout"] with the timeout argument
+def get_timeout_arg(options, dest_dict):
+    timeout = get_option_arg(options, "timeout")
+    if not timeout:
+        arg_flag = "-k"
+        if arg_flag in options:
+            pos = options.index(arg_flag)
+            try:
+                timeout = options[pos + 1]
+            except IndexError:
+                error_out("Value not provided after '%s'" % arg_flag)
+            del(options[pos+1])
+            del(options[pos])
+
+    if timeout:
+        # validate the value
+        if re.match('^\d+[dhms]', timeout) is None:
+            error_out('%s: Timeout format not supported.' % timeout)
+        dest_dict["timeout"] = timeout
+    return timeout
+
+def do_add_nodes(conf, options):
+    global server
+    global jenkins
+
+    if '-f' in options:
+        force = True
+        options.remove('-f')
+    else:
+        force = False
+
+    board_names, options = get_board_arg("add-node", conf, options, "!,am")
+
+    params = { 'command' : 'java -jar /fuego-core/slave.jar'}
+    for board_name in board_names:
+        nodes = [node['name'] for node in server.get_nodes()]
+        if board_name in nodes:
+            if force:
+                server.delete_node(board_name)
+            else:
+                raise Exception('Node \'%s\' already exists' % board_name)
+
+        server.create_node(
+            board_name,
+            numExecutors = 1,
+            launcher = jenkins.LAUNCHER_COMMAND,
+            launcher_params = params
+        )
+        # bug?: it seems enable_node requires two calls
+        server.enable_node(board_name)
+        server.enable_node(board_name)
+    sys.exit(0)
+
+
+def do_rm_nodes(conf, options):
+    global server
+
+    installed_nodes = [node['name'] for node in server.get_nodes()]
+    dprint("installed nodes=%s" % installed_nodes)
+    if not options:
+        # if no args, remove all installed nodes!
+        confirm = raw_input("Really remove ALL nodes? (y/n) ")
+        if not confirm[0] in "Yy":
+            sys.exit(1)
+        options = installed_nodes
+    else:
+        for node in options:
+            if node not in installed_nodes:
+                raise Exception('Node \'%s\' not found.' % node)
+
+    for node in options:
+        installed_nodes = [n['name'] for n in server.get_nodes()]
+        if node not in installed_nodes:
+            # in case the same node is repeated in options
+            continue
+        if node == 'master':
+            # the master node is special in jenkins
+            continue
+        server.delete_node(node)
+    sys.exit(0)
+
+# shows a list title, if not quiet, and
+# returns an indent to use for the list
+def show_list_title(title):
+    global quiet
+
+    if not quiet:
+        print title
+        indent = "   "
+    else:
+        # machine-readable (-q) output omits the title and indent
+        indent = ""
+    return indent
+
+
+def do_list_nodes(conf):
+    node_list = [node['name'] for node in server.get_nodes()]
+    node_list.sort()
+
+    indent = show_list_title("Jenkins nodes in this system:")
+    for node in node_list:
+        if node == 'master':
+            continue
+        print indent + node
+
+    sys.exit(0)
+
+
+def do_list_remote_boards(conf, options):
+    global quiet
+
+    board_list = get_boards_from_server(conf, options)
+
+    indent = show_list_title("Boards on the LabControl server:")
+    if board_list:
+        for board in board_list:
+            print indent + board
+    else:
+        if options:
+            extra_msg = " that match the specified criteria"
+        else:
+            extra_msg = ""
+        if not quiet:
+            print("No boards found%s." % extra_msg)
+
+
+def do_list_remote_resources(conf, options):
+    url = conf.SERVER_URL_BASE+"query_resources"
+
+    data = {}
+    for criteria in options:
+        if "=" not in criteria:
+            error_out("Unrecognized criteria '%s' specified for query of requests" % criteria)
+        field, value = criteria.split("=", 1)
+        if field not in ["name", "version", "release"]:
+            error_out("Test query criteria may only use 'name', 'version', or 'release'")
+        data[field] = value
+    resp = requests.post(url, data=data)
+    result, content = resp.text.split('\n', 1)
+    if result != "OK":
+        error_out("Can't read tests from server\nServer returned message: %s" % content)
+    for run in content.split("\n"):
+        if run:
+            print(run)
+
+    sys.exit(0)
+
+class where_class:
+    def __init__(self, field_name, op, value):
+        self.field_name = field_name
+
+        self.op = op
+
+        if field_name == "start_time":
+            # convert value to seconds since epoch
+            # this allows things like: "start_time>yesterday"
+            import parsedatetime as pdt
+            import datetime
+            cal = pdt.Calendar()
+            d_tuple = cal.parse(value)
+            dt = datetime.datetime(*d_tuple[0][:7])
+            value = str(time.mktime(dt.timetuple())*1000)
+            # FIXTHIS - print value in nicer format
+            vprint("where start_time value is '%s'" % value)
+
+        self.value = value
+
+    def __repr__(self):
+       return "where(%s, %s, %s)" % (self.field_name, self.op, self.value)
+
+    def check_value(self, run_value):
+        if self.op == "=":
+            return run_value == self.value
+        elif self.op == "!=":
+            return run_value != self.value
+        elif self.op == "=~":
+            return re.match(self.value, run_value)
+        elif self.op == "<=":
+            try:
+                return float(run_value) <= float(self.value)
+            except ValueError:
+                return False
+        elif self.op == ">=":
+            try:
+                return float(run_value) >= float(self.value)
+            except ValueError:
+                return False
+        elif self.op == "<":
+            try:
+                return float(run_value) < float(self.value)
+            except ValueError:
+                return False
+        elif self.op == ">":
+            try:
+                return float(run_value) > float(self.value)
+            except ValueError:
+                return False
+
+        return False
+
+    def match(self, run):
+        # some fields can be found without loading the run.json file
+        # examples are: "test", "type", "spec", "board", "num"
+        found = False
+        try:
+            run_value = run.__dict__[self.field_name]
+            found = True
+        except:
+            pass
+
+        #if not found:
+        #    print("Warning: did not find field '%s' in run %s" % \
+        #        (self.field_name, run.run_id))
+
+        if not found or run_value == "<data not loaded>":
+            run.get_run_data_from_json_file()
+            try:
+                run_value = run.__dict__[self.field_name]
+                found = True
+            except:
+                try:
+                    run_value = run.run_data["metadata"][self.field_name]
+                    found = True
+                except:
+                    pass
+
+        if found:
+            return self.check_value(run_value)
+
+        print("Did not find field '%s' in loaded object data for object %s" % (self.field_name, run.run_id))
+        return False
+
+# returns a where_list (list of where tuples)
+# each where tuple is (field_name, operation, value)
+def parse_where(where_string):
+    # the order of entries in this list is important
+    # use most-specific strings first
+    op_list = ["!=", "=~", "<=", ">=", "=", "<", ">"]
+    field_list = ["test", "type", "spec", "board", "start_time", "result",
+            "batch_id", "status", "build_number",
+            "duration_ms"]
+    where_list = []
+    for clause in where_string.split(","):
+        where = None
+        for op in op_list:
+            if op in clause:
+                field_name, value = clause.split(op, 1)
+                if field_name not in field_list:
+                    error_out("Invalid field '%s' in where condition" % field_name)
+                where = where_class(field_name, op, value)
+                break
+        if where:
+            where_list.append(where)
+        else:
+            print("Error: unknown where condition %s" % where)
+
+    dprint("where_list=%s" % where_list)
+
+    return where_list
+
+def get_objects_from_server(conf, obj_type, options):
+    url = conf.SERVER_URL_BASE+"query_objects"
+
+    data = {}
+    data["obj_type"] = obj_type
+
+    valid_fields = ["board", "host", "precleanup", "postcleanup",
+                    "reboot", "rebuilt", "request_time", "requestor", "run_id",
+                    "spec", "state", "test_name"]
+
+    for criteria in options:
+        if "=" not in criteria:
+            error_out("Unrecognized criteria '%s' specified for query of %s" %
+                   (criteria, obj_type))
+        field, value = criteria.split("=", 1)
+        if field not in valid_fields:
+            error_out("Request query criteria must be one of %s" % valid_fields)
+        data[field] = value
+
+    resp = requests.post(url, data=data)
+    result, content = resp.text.split('\n', 1)
+    if result != "OK":
+        error_out("Can't read %ssfrom server\nServer returned message: %s" % (obj_type, content))
+    obj_list = []
+    for obj in content.split("\n"):
+        if obj:
+            obj_list.append(obj)
+    return obj_list
+
+
+def get_requests_from_server(conf, options):
+    url = conf.SERVER_URL_BASE+"query_requests"
+
+    # see if we specified a host filter
+    have_host_filter = False
+    for opt in options:
+        if opt.startswith("host="):
+            have_host_filter = True
+
+    # filter by this machine's host, if no host filter was set
+    if not have_host_filter:
+        options.append("host=%s" % conf.host)
+
+    valid_fields = ["board", "host", "precleanup", "postcleanup",
+                    "reboot", "rebuilt", "request_time", "requestor", "run_id",
+                    "spec", "state", "test_name"]
+
+    for criteria in options:
+        if "=" not in criteria:
+            error_out("Unrecognized criteria '%s' specified for query of requests" % criteria)
+        field, value = criteria.split("=", 1)
+        if field not in valid_fields:
+            error_out("Request query criteria must be one of %s" % valid_fields)
+        data[field] = value
+    resp = requests.post(url, data=data)
+    result, content = resp.text.split('\n', 1)
+    if result != "OK":
+        error_out("Can't read requests from server\nServer returned message: %s" % content)
+    req_list = []
+    for req in content.split("\n"):
+        if req:
+            req_list.append(req)
+    return req_list
+
+def get_boards_from_server(conf, options):
+    url = conf.SERVER_URL_BASE+"query_boards"
+    valid_fields = ["board", "host", "state"]
+
+    data = {}
+    for criteria in options:
+        if "=" not in criteria:
+            error_out("Unrecognized criteria '%s' specified for query of boards" % criteria)
+        field, value = criteria.split("=", 1)
+        if field not in valid_fields:
+            error_out("Request query criteria must be one of %s" % valid_fields)
+        data[field] = value
+    resp = requests.post(url, data=data)
+    result, content = resp.text.split('\n', 1)
+    if result != "OK":
+        error_out("Can't read requests from server\nServer returned message: %s" % content)
+    req_list = []
+    for req in content.split("\n"):
+        if req:
+            req_list.append(req)
+    return req_list
+
+def do_list_objects(conf, obj_type, options):
+    global quiet
+
+    obj_list = get_objects_from_server(conf, obj_type, options)
+
+    indent = show_list_title("%ss on the LabControl server:" % obj_type)
+    if obj_list:
+        for obj in obj_list:
+            print indent + req
+    else:
+        if options:
+            extra_msg = " that match the specified criteria"
+        else:
+            extra_msg = ""
+        if not quiet:
+            print("No %ss found%s." % (obj_type, extra_msg))
+
+    sys.exit(0)
+
+
+def do_list_boards(conf, options):
+    do_list_objects(conf, "board", options)
+
+
+# returns dictionary for the request
+def get_request(conf, req_id):
+    url = conf.SERVER_URL_BASE+"get_request"
+    data = { "request_id": req_id }
+    resp = requests.post(url, data=data)
+    result, content = resp.text.split('\n', 1)
+    if result != "OK":
+        error_out("Can't read request '%s' from server\nServer returned message: %s" % (req_id, content))
+
+    try:
+        req = json.loads(content)
+    except:
+        error_out("Can't convert json from server for request '%s'\nServer data was: %s" % (req_id, content))
+
+    return req
+
+def update_request(conf, req_id, state, run_id=None):
+    url = conf.SERVER_URL_BASE+"update_request"
+    data = { "request_id": req_id, "state": state }
+
+    if state == "running":
+        data["start_time"] = time.strftime("%FT%T%z")
+    if state == "done":
+        data["done_time"] = time.strftime("%FT%T%z")
+
+    if run_id:
+        data["run_id"] = run_id
+    resp = requests.post(url, data=data)
+    result, content = resp.text.split('\n', 1)
+    if result != "OK":
+        error_out("Can't update request '%s' from server\nServer returned message: %s" % (req_id, content))
+
+    try:
+        req = json.loads(content)
+    except:
+        error_out("Can't convert json from server for request '%s'\nServer data was: %s" % (req_id, content))
+
+    return req
+
+
+# remove a request from the server
+def remove_request(conf, req_id):
+    url = conf.SERVER_URL_BASE+"remove_request"
+    data = { "request_id": req_id }
+    resp = requests.post(url, data=data)
+    result, content = resp.text.split('\n', 1)
+    if result != "OK":
+        print("Can't remove request '%s' from server\nServer returned message: %s" % (req_id, content))
+    return result
+
+def do_rm_request(conf, options):
+    # FIXTHIS support wildcard removal in do_rm_request
+    req_id = options[0]
+
+    result = remove_request(conf, req_id)
+    if result == "OK":
+        print"Request was removed from the server"
+        sys.exit(0)
+    else:
+        sys.exit(1)
+
+def do_query_request(conf, options):
+    attr = None
+    if '-n' in options:
+        try:
+            attr = options[options.index('-n')+1]
+        except:
+            error_out("Missing attribute to show")
+        options.remove('-n')
+        options.remove(attr)
+
+    if not options:
+        error_out("Missing request id to query")
+
+    req_id = options[0]
+    del options[0]
+
+    req = get_request(conf, req_id)
+
+    # show fields based on returned data
+    attrs = req.keys()
+    attrs.sort()
+
+    if attr:
+        try:
+            value = req[attr]
+        except:
+            error_out("request '%s' has no attribute '%s'." % (req_id, attr))
+        print value
+    else:
+        # show all attributes
+        for attr in attrs:
+            print "%13s : %s" % (attr, req[attr])
+
+def do_get_run(conf, options):
+    output_dir = os.getcwd()
+    if "-o" in options:
+        output_dir = options[options.index("-o")+1]
+        options.remove(output_dir)
+        options.remove("-o")
+        if not os.path.isdir(output_dir):
+            error_out("Invalid output directory '%s'" % output_dir)
+
+    if not options:
+        error_out("Missing run-id")
+
+    run_id = options[0]
+    del options[0]
+
+    server_url = conf.SERVER_URL_BASE+"get_run_url"
+    data = { "run_id": run_id }
+    resp = requests.post(server_url, data=data)
+    result, content = resp.text.split('\n', 1)
+    if result != "OK":
+        error_out("Can't read run '%s' from server\nServer returned message: %s" % (run_id, content))
+
+    run_url = content
+    if not run_url.startswith("http"):
+        # pre-pend the first parts of the server url base
+        from urlparse import urlparse
+        parts = urlparse(conf.SERVER_URL_BASE)
+        run_url = "%s://%s%s" % (parts.scheme, parts.netloc, run_url)
+
+    out_filename = run_url.split("/")[-1]
+    import urllib
+    out_filepath = output_dir + os.sep + out_filename
+    urllib.urlretrieve(run_url, out_filepath)
+    print "Run was downloaded successfully, and is at: %s" % out_filepath
+    return
+
+class data_class:
+    def __init__(self):
+        self.data = {}
+
+    def __getitem__(self, key):
+        # return value for key
+        if self.data.has_key(key):
+            item = self.data[key]
+        elif hasattr(self, key):
+            item = getattr(self, key)
+        else:
+            if self.data.has_key("default"):
+                item = self.data["default"]
+            else:
+                item = "missing data value for key '%s'" % key
+
+        if callable(item):
+            return item(self)
+        else:
+            return item
+
+
+def make_temp_file(data):
+    try:
+        fd = tempfile.NamedTemporaryFile(prefix="lc-", delete=False)
+        fd.write(data)
+    finally:
+        fd.close()
+
+    return fd.name
+
+
+# routines for handling sub-process timeouts
+class LC_INTERRUPT(Exception):
+    pass
+
+def alarm_handler(signum, frame):
+    raise LC_INTERRUPT
+
+# this function executes the command, and shows the log file
+# while it is running
+def lc_exec_command(command, timeout):
+    global log, tail_fd
+
+    dprint("lc_exec_command: command=%s" % command)
+
+    p = subprocess.Popen(command.split(), stdout=log, stderr=log)
+
+    # specify timeout for command operation
+    signal.signal(signal.SIGALRM, alarm_handler)
+
+    # timeout is passed as integer[dhms] (dhms: days, hours, minutes, seconds)
+    vprint("timeout is: " + timeout)
+    units = timeout[:-1]
+    multiplier = {"d": 24*60*60, "h": 60*60, "m": 60, "s": 1}
+    time_secs = int(units)*multiplier[timeout[-1]]
+    dprint("setting alarm to: " + str(time_secs) + " seconds")
+    signal.alarm(time_secs)
+
+    # fix Python's wierd pipe handling, so subprocess command will handle pipe
+    # signals correctly.  Otherwise, something like 'lc ... | head' will fail
+    signal.signal(signal.SIGPIPE,signal.SIG_DFL)
+    timed_out = False
+
+    try:
+        while p.poll() is None:
+            #sys.stdout.write(".")
+            # output the log while the command is running
+            log.flush()
+            data = os.read(tail_fd, 4096)
+            if data:
+                sys.stdout.write(data)
+                sys.stdout.flush()
+
+            time.sleep(.1)
+
+    except LC_INTERRUPT:
+        print("Job interrupted! Timeout of '%s' was exceeded." % timeout)
+        # FIXTHIS - try graceful termination of test
+        # disable slow termination for now (2018-12-29), because some tests
+        # report SUCCESS if post_test runs but they still have missing
+        # testcases - this needs more work
+
+        #p.send_signal(signal.SIGTERM)
+        #for i in range(3):
+        #    if p.poll() == None:
+        #        time.sleep(10)
+        #        p.send_signal(signal.SIGTERM)
+        #if p.poll() == None:
+        #    p.kill()
+
+        # abort with prejudice...
+        p.kill()
+        timed_out = True
+
+    finally:
+        # cancel the timeout alarm
+        signal.alarm(0)
+
+    if timed_out:
+        dprint("returning signal.SIGALRM to indicate timeout")
+        return signal.SIGALRM
+    else:
+        dprint("returning test return code of %s" % p.returncode)
+        return p.returncode
+
+def do_put_request(conf, options):
+    # FIXTHIS - options for put_request should be same as run-test
+    try:
+        board_host = options[0]
+        del options[0]
+    except:
+        print_error("Missing board for operation")
+        usage(1, ["put-request"])
+
+    try:
+        host, board = board_host.split(":", 1)
+    except:
+        print_error("Must specify both host and board")
+        usage(1, ["put-request"])
+
+    try:
+        test_name = options[0]
+        del options[0]
+    except:
+        print_error("Missing test for operation")
+        usage(1, ["put-request"])
+
+    try:
+        opts, args = getopt.gnu_getopt(options,
+            "Rs:", ["reboot", "spec="])
+    except getopt.GetoptError:
+        usage(1, ["put-request"])
+
+    spec = "default"
+    reboot = "False"
+    for o, a in opts:
+        if o in ("-R", "--reboot"):
+            reboot = "True"
+        if o in ("-s", "--spec"):
+            spec = a
+
+    url = conf.SERVER_URL_BASE+"put_request"
+    data = {"test_name": test_name,
+            "version": "any",
+            "test_fuego_release": "any",
+            "host": host,
+            "board": board,
+            "reboot": reboot,
+            "rebuild": "False",
+            "precleanup": "True",
+            "postcleanup": "True",
+            "spec": spec,
+            "requestor": conf.user + "@" + conf.host,
+            "run_id": "unknown",
+            "start_time": "unknown",
+            "done_time": "unknown",
+            }
+    resp = requests.post(url, data=data)
+    result, content = resp.text.split('\n', 1)
+    if result != "OK":
+        error_out("Can't put request to server\nServer returned message: %s" % content)
+
+    print "Request was accepted by the server."
+    print content
+    sys.exit(0)
+
+
+def do_put_resource(conf, options):
+    try:
+        test_arg = options[0]
+    except:
+        error_out("Must specify a resource name to put")
+        usage(1, ["put-test"])
+
+    # check whether argument is a file or test name
+    if os.path.isfile(test_arg):
+        created_package = False
+        test_filepath = test_arg
+        if not test_filepath.endswith(".ftp"):
+            error_out("Invalid extension for test package.  Was expecting '.ftp'")
+    else:
+        created_package = True
+        test_filepath = do_package_test(conf, [test_arg, "-o", "/tmp"])
+
+    url = conf.SERVER_URL_BASE+"put_resource"
+    test_files = {"file1": open(test_filepath, "rb")}
+    resp = requests.post(url, files=test_files)
+    if created_package:
+        os.remove(test_filepath)
+    result, content = resp.text.split('\n', 1)
+    if result != "OK":
+        error_out("Can't put test to server\nServer returned message: %s" % content)
+
+    print "Test package %s was accepted by the server." % os.path.basename(test_filepath)
+
+def put_resource_data_file(conf, data_filepath):
+    url = conf.SERVER_URL_BASE+"put_resource_data"
+    data_files = {"file1": open(data_filepath, "rb")}
+    resp = requests.post(url, files=data_files)
+    return resp.text.split('\n', 1)
+
+# returns a matching item (which must be unique)
+# from a list.  A matching item is one with leading
+# characters that exactly match the item
+# e.g. 'bea' matches 'beaglebone' if there are no other
+# items in the list that start with 'bea'.
+# Returns None if there is no match and "*multiple*" for
+# multiple matches. (both are errors)
+def match_from_list(item, item_list):
+    match = None
+    for candidate in item_list:
+        if candidate.startswith(item):
+            if match:
+                # not unique, no match to either
+                return "*multiple*"
+            else:
+                match = candidate
+    return match
+
+# get the board args for a command from options
+# allowed flags are:
+#   ! = required (error_out if missing)
+#   , = allow list of boards (if missing, a list is returned with only one element)
+#   a = allow 'all'
+#   m = allow match with longer name, if match is unique
+#
+# you must specify ',' if you specify 'a'
+# routine allows for using FUEGO_BOARD, if it's in the environment
+#
+# returns (board_name_list, options)
+#   board_name_list might only contain a single entry
+#
+# example options:
+#   board myboard    # simple case matching one board
+#   board bea,min    # matches beaglebone and minnowboard
+#   board all        # expands to all installed boards
+#
+def get_board_arg(cmd, conf, options, flags):
+    # check for 'b', or environment variable
+    # specified option has precedence over environment variable
+    if 'board' not in options:
+        try:
+            board_name = os.environ["LC_BOARD"]
+        except:
+            # ok - no board specified, is it required?
+            if '!' in flags:
+                # ok, it's required, is a default board configured?
+                if conf.default_board:
+                    options.insert(0, conf.default_board)
+                    options.insert(0, "-b")
+                else:
+                    error_out("%s command requires a board" % cmd)
+            else:
+                return ([None], options)
+
+    pos = options.index('board')
+    try:
+        board_name = options[pos + 1]
+    except IndexError:
+        error_out("Board not provided after 'board'.")
+
+    del(options[pos+1])
+    del(options[pos])
+
+    # now we have a comma-separated list
+
+    if ',' in board_names and ',' not in flags:
+        error_out("Multiple board names '%s' is not allowed" % board_names)
+
+    # now check for board presence and short-matching
+    board_list = []
+    for board in board_names.split(','):
+        if board in site_boards:
+            board_list.append(board)
+            continue
+
+        # ok, board is not present, check for unique short-match
+        matching_str = ""
+        if 'm' in flags:
+            matching_str = "matching "
+            match_board = match_from_list(board, site_boards)
+            if match_board:
+                if match_board == "*multiple*":
+                    error_out("Multiple boards matched '%s'; cannot proceed." % board)
+                else:
+                    board_list.append(match_board)
+                    continue
+
+        error_out("Board %s'%s' not found." % (matching_str, board))
+
+    return (board_list, options)
+
+def do_query_board(bvars, options):
+    global quiet
+
+    attrs = bvars.keys()
+    attrs.sort()
+    board_name = bvars["board"]
+
+    shell_format = False
+    if '--sh' in options:
+        shell_format = True
+        options.remove('--sh')
+
+    # print a single data item, if requested
+    attr = None
+    if '-n' in options:
+        attr = options[options.index('-n')+1]
+        options.remove('-n')
+        options.remove(attr)
+
+    if options:
+        wprint("There were unprocessed options: %s" % " ".join(options))
+
+    if attr:
+        try:
+            value = bvars[attr]
+        except:
+            error_out("board '%s' has no attribute '%s'." % (board_name, attr), 1)
+        if not value.startswith("function ") and shell_format:
+            print '%s="%s"' % (attr, value)
+        else:
+            print dequote(value)
+        return
+
+    attrs.remove("board")
+
+    if quiet:
+        for attr in attrs:
+            print attr
+        return
+
+    if shell_format:
+        for attr in attrs:
+            value = bvars[attr]
+            if value.startswith("function "):
+                print value
+            else:
+                print '%s="%s"' % (attr, bvars[attr])
+        return
+
+    print "Information for board: %s\n" % board_name
+
+    if bvars.has_key("description"):
+        desc = bvars["description"]
+        print desc
+        attrs.remove("description")
+
+    for attr in attrs:
+        #dprint("attr=%s" % attr)
+        value = bvars[attr]
+        if value.find('\n') == -1:
+            # print single-line value
+            print "%25s : %s" % (attr, bvars[attr])
+        else:
+            # print multi-line value
+            lines = value.split('\n')
+            print "%25s : %s" % (attr, lines[0])
+            # subsequent lines are indented
+            for line in lines[1:]:
+                print " "*28 + line
+    return
+
+
+def do_status(bmap):
+    board = bmap["board"]
+
+    print "Status for board: %s" % board
+
+    # show who is currently using board
+    res = get_reservation(bmap)
+    if res[0]:
+        print "User %s currently has '%s' reserved." % (res[0], board)
+        print "Reservation began at: %s" % res[1]
+    else:
+        print "Board '%s' is not reserved." % (board)
+
+    # FIXTHIS - do_status should report some board state data (power, etc.):
+    #   board power-on status
+    #   whether board is running linux (pingable?)
+    #   future reservations for board
+
+## do_set_env
+# set the vars from bmap into the current environment
+# if options list has "-o", output the env as a list of shell export statements
+# if options list has "-s", start a sub-shell
+#
+# variable precedence:
+#   value from 'board' command line = highest precedence
+#   value from pre-existing environment = medium precedence
+#   value from <board>.board file = lowest precendence
+#
+# This means that effectively, board commands don't "nest" if
+# a different board is specified.  This is because the <board>.board
+# values for a new board would not override the values in the
+# sub-shell environment of the first board.
+# (i.e. bad things will happen if you do: "lc setenv osk", then
+#   "lc ebony getkernel ; make $kimage" )
+#
+def do_setenv(bmap, options=[]):
+    if "-s" in options:
+        print "Setting environment for board: %s" % bmap["board"]
+
+    # set board name in new shell environment
+    os.environ[BOARD_ENV_VAR] = bmap["board"]
+
+    # copy certain environment vars for the new shell
+    env_list = ["ARCH", "CROSS_COMPILE", "kimage", "INSTALL_PATH",
+        "INSTALL_MOD_PATH", "ADBHOST", "BUILDDIR",
+        "KERNEL_SRC", "KBUILD_OUTPUT", "TOOL_PATH", "TMPDIR"]
+
+
+    for var in env_list:
+        if bmap.has_key(var) and bmap[var] and not os.environ.has_key(var):
+            os.environ[var] = bmap[var]
+
+    # add TMPDIR if not already present
+    if not os.environ.has_key("TMPDIR"):
+        os.environ["TMPDIR"] = "/tmp"
+
+    # if TOOL_PATH is present, add it to regular PATH, if not already there
+    if bmap.has_key("TOOL_PATH"):
+        tool_path = bmap["TOOL_PATH"]
+        PATH = os.environ["PATH"].split(":")
+        for tool_path_item in tool_path.split(":"):
+            if tool_path_item not in PATH:
+                PATH.append(tool_path_item)
+        os.environ["PATH"] = ":".join(PATH)
+        # DEBUG
+        #print "os.environ['PATH']=", os.environ["PATH"]
+
+    # if output of export list is requested, do that
+    if "-o" in options:
+        export_list = env_list + ["PATH", BOARD_ENV_VAR]
+        for var in export_list:
+            if os.environ.has_key(var):
+                value = os.environ[var]
+                # escape spaces
+                value = re.sub(" ", "\ ", value)
+                print "export %s=%s" % (var, value)
+        return
+
+    if "-s" in options:
+        # start a new shell with the modified environment
+        # FIXTHIS - add TTC to prompt
+        #print "os.environ=", os.environ
+        #prompt = os.environ["PS1"]
+        #prompt = prompt[0] + "TTC " + prompt[1:]
+        #os.environ["PS1"] = "[TTC \\u@\\h \\W]\\$ "
+
+        # FIXTHIS - should get user's preferred shell from /etc/passwd
+        print "Starting sub-shell with environment for board."
+        print "Use 'exit' to exit the sub-shell."
+        os.system("/bin/bash")
+
+# resource reservation system
+
+# reserve a resource for use
+def do_reserve_resource(conf, options):
+    # get resource name
+    res_name = None
+
+    board_names, options = get_board_arg("reserve-resource", conf, options, "m")
+    res_name = board_names[0]
+    res_type = "board"
+
+    if not res_name:
+        error_out("Missing resource to reserve (specify a board with '-b')")
+
+    # handle -f (force) option
+    force = 0
+    if "-f" in options:
+        force = 1
+        options.remove("-f")
+
+    # create lock directory, if it doesn't exist
+    if not os.path.isdir(conf.lockdir):
+        os.mkdir(conf.lockdir)
+        os.chmod(conf.lockdir, 0777)
+
+    start_time = time.strftime('%Y-%m-%d_%H:%M:%S')
+
+    rfile_fmt = "%s/reservation-%s-%s.json"
+    rfile = rfile_fmt % (conf.lockdir, res_type, res_name)
+    res = {"res_type": res_type, "res_name": res_name,
+            "start_time": start_time, "last_check_time": start_time}
+    if not os.path.isfile(rfile) or force:
+        try:
+            with open(rfile, "w") as res_fd:
+                json.dump(res, res_fd, indent=4, ensure_ascii=False)
+        except:
+            error_out("Could not create reservation file %s" % rfile)
+
+        try:
+            os.chmod(rfile, 0777)
+        except:
+            print("Could not chmod reservation file %s" % rfile)
+
+        print("Reserved resource %s (type: %s)" % (res_name, res_type))
+    else:
+        with open(rfile, "r") as res_fd:
+            res = json.load(res_fd)
+
+        print("Resource '%s' is already reserved" % res["res_name"])
+        print("Reservation began at: %s" % res["start_time"])
+        return 1
+
+    return 0
+
+def do_release_resource(conf, options):
+    # get resource name
+    res_name = None
+
+    board_names, options = get_board_arg("release-resource", conf, options, "m")
+    res_name = board_names[0]
+    res_type = "board"
+
+    if not res_name:
+        error_out("Missing resource to release (specify a board with '-b')")
+
+    rfile_fmt = "%s/reservation-%s-%s.json"
+    rfile = rfile_fmt % (conf.lockdir, res_type, res_name)
+    if not os.path.isfile(rfile):
+        error_out("Resource %s (type: %s) is not reserved." % (res_name, res_type))
+    try:
+        os.remove(rfile)
+    except:
+        error_out("Could not remove reservation file %s" % rfile)
+
+    print("Resource '%s' is no longer reserved." % res_name)
+
+    return 0
+
+def do_pdudaemon(command, bvars):
+    # pdudaemon hostname
+    if 'PDUDAEMON_HOSTNAME' in bvars:
+        pdudaemon_hostname = bvars['PDUDAEMON_HOSTNAME']
+    else:
+        pdudaemon_hostname = 'localhost'
+
+    # pdudaemon port (optional, default 16421)
+    if 'PDUDAEMON_PORT' in bvars:
+        pdudaemon_port = bvars['PDUDAEMON_PORT']
+    else:
+        pdudaemon_port = '16421'
+
+    # pdu hostname
+    if 'PDU_HOSTNAME' in bvars:
+        pdu_hostname = bvars['PDU_HOSTNAME']
+    else:
+        error_out('PDU_HOSTNAME not specified in board file')
+
+    # pdu port
+    if 'PDU_PORT' in bvars:
+        pdu_port = bvars['PDU_PORT']
+    else:
+        error_out('PDU_PORT not specified in board file')
+
+    # pdu delay
+    if 'PDU_DELAY' in bvars:
+        pdu_delay = bvars['PDU_PORT']
+    else:
+        pdu_delay = '0'
+
+    cmd_map = {
+        'power-on' : 'on',
+        'power-off' : 'off',
+        'power-cycle' : 'reboot'
+    }
+    cmd = cmd_map[command]
+
+    query='&'.join(['hostname='+pdu_hostname, 'port='+pdu_port, 'delay='+pdu_delay])
+    url = 'http://%s:%s/power/control/%s?%s' % (pdudaemon_hostname, pdudaemon_port, cmd, query)
+    try:
+        resp = requests.get(url)
+    except requests.exceptions.ConnectionError:
+        error_out("Could not connect to PDUDaemon on %s:%s" % (
+            pdudaemon_hostname, pdudaemon_port))
+
+    if resp.status_code != 200:
+        error_out("pdudaemon did not accept the request")
+
+    return 0
+
+def do_ttc(command, bvars, board_name):
+    if 'TTC_TARGET' in bvars:
+        ttc_target = bvars['TTC_TARGET']
+    else:
+        ttc_target = board_name
+
+    cmd_map = {
+        'power-on' : 'on',
+        'power-off' : 'off',
+        'power-cycle' : 'reboot'
+    }
+    cmd = cmd_map[command]
+
+    subprocess.check_call('ttc %s %s' % (ttc_target, cmd), shell=True)
+
+    return 0
+
+def do_power_control(conf, options, command):
+    bmap = get_fuego_boards(conf)
+    board_names, options = get_board_arg(command, conf, options, "!,am")
+
+    for board_name in board_names:
+        board = bmap[board_name]
+        bvars = get_board_vars(board, conf)
+        if 'BOARD_CONTROL' in bvars:
+            board_control = bvars['BOARD_CONTROL']
+        else:
+            error_out("BOARD_CONTROL is not defined for %s" % board_name)
+
+        if board_control in ["pdudaemon", "PDUDAEMON", "PDUDaemon", "PDUdaemon"]:
+            do_pdudaemon(command, bvars)
+        elif board_control in ["ttc", "TTC", "Ttc"]:
+            do_ttc(command, bvars, board_name)
+        else:
+            error_out("BOARD_CONTROL value %s is not supported" % board_control)
+    sys.exit(0)
+
+# this takes an exception object (e), and formats it as a string
+# safely (handling UnicodeEncode errors), then shows usage help, and
+# exits the program with an error message.
+#
+# Background:
+# python 2.7 uses default encoding of 'ascii'. If e is an exception from
+# the jenkins module, then using str(e) will cause the module to use str()
+# on the error message from the jenkins server. If that message has non-ascii
+# chars (which is not uncommon), then python raises a UnicodeEncodeError
+# exception.  I don't want to change the code for the jenkins
+# module, and I have no other way of retrieving the string, which I'd like
+# to print.
+# So, do this hack where we reload sys and change the defaultencoding from
+# 'ascii' to 'utf8'.  The function setdefaultencoding() exists in the
+# sys module, but is deleted when it is imported (but not on 'reload').
+# I could have modified /usr/lib/python2.7/site.py inside the container
+# to remove the code that deletes the function.  This would have avoided
+# the need to do the 'reload(sys)'.
+# But I decided to limit the scope of this change.
+# Sheesh - what a mess!
+def safe_str_help_and_exit(e, lc_cmd):
+    try:
+       err_msg = str(e)
+       prefix = ""
+    except UnicodeEncodeError:
+        if sys.version_info[0] < 3:
+           # this reload is hacky and can have bad side effects, but we're on
+           # our way out of the program, so we don't care
+           reload(sys)
+           sys.setdefaultencoding('utf8')
+
+        err_msg = str(e)
+        prefix = "ERROR: Operation '%s' raised exception with string:\n" % lc_cmd
+    msg = prefix + err_msg + '\n---\n' + command_help[lc_cmd][1]
+    sys.exit(msg)
+
+outside_ok_cmd_list = ["put-binary-package"]
+
+def main():
+    # use global module names
+    global re, time, copy2, subprocess, signal, fcntl, requests, json
+    global getopt, shutil, tempfile, glob
+
+    global verbose
+    global quiet
+    global debug
+    global server
+    global jenkins
+
+    # find the configuration file
+    # we can always find it inside the container, but outside
+    # the container it may be somewhere weird
+    config_filepath = default_config_filepath
+
+    # now do most imports
+    import re
+    import time
+    from shutil import copy2
+    import signal
+    import fcntl
+    import requests
+    try:
+        import simplejson as json
+    except ImportError:
+        import json
+    import getopt
+    import shutil
+    import tempfile
+    import glob
+
+    if len(sys.argv) < 2:
+        error_out('Missing command\nUse "lc help" to get usage help.', 1)
+
+    # parse arguments
+    command_list = command_help.keys()
+    command_list.extend(["--help", "-h", "add-job", "rm-job", "build-job",
+        "add-node", "rm-node"])
+    options = []
+
+
+    board = ""
+    command = ""
+    quiet = False
+    verbose = False
+    # find command, board, and any arguments
+    arglist = sys.argv[1:]
+    for arg in arglist:
+        if arg == "-q":
+            quiet = True
+            continue
+        if arg == "-v":
+            verbose = True
+            ll_verbose = True
+            continue
+        if arg == "--debug":
+            debug = True
+            ll_debug = True
+            continue
+        if arg == "-c":
+            config_filepath = arglist[arglist.index("-c")+1]
+            # this is dicey - it relies on the for loop to continue
+            # properly if arglist is manipulated while the 'for' is running
+            arglist.remove(config_filepath)
+            continue
+        if arg in command_list:
+            # support "lc <command> help"
+            if (arg == "help" or arg == "-h" or arg == "--help") and command:
+                options.append(command)
+                command = arg
+                continue
+
+            # support "lc help <command>" and "lc run reboot"
+            # -- where arg has same name as a legal ttc command
+            if command:
+                # this is an argument to the command
+                # which was already found
+                # note: check for 'help' arg (above) must come first
+                options.append(arg)
+            else:
+                # normal "lc <command>" case
+
+                command = arg
+            continue
+
+        options.append(arg)
+
+    # if no command recognized, return
+    if not command:
+        error_out('Missing or unregonized command\nUse "lc help" to get usage help.', 1)
+
+    if command == "help" or command == "--help" or command == "-h":
+        usage(0, options)
+
+    if command == "version":
+        print "lc: version %d.%d.%d%s" % VERSION
+        sys.exit(0)
+
+    # read config
+    conf = config_class(config_filepath)
+
+    if command == "config":
+        try:
+            name = options[0]
+        except:
+            # list configuration options
+            conf_item_list = []
+            for item in conf.__dict__.keys():
+                # filter out computed items
+                if item not in ["SERVER_URL_BASE"]:
+                    conf_item_list.append(item)
+            conf_item_list.sort()
+            for item in conf_item_list:
+                print("%s=%s" % (item, getattr(conf, item)))
+            sys.exit(1)
+
+        print getattr(conf, name, "")
+        sys.exit(0)
+
+    if command == "list-boards":
+        # shows fuego boards
+        do_list_boards(conf, options)
+
+    if command == "list-requests":
+        do_list_requests(conf, options)
+
+    if command == "wait-for":
+        do_wait_for(options)
+
+    if command == "put-request":
+        do_put_request(conf, options)
+
+    if command == "rm-request":
+        do_rm_request(conf, options)
+
+    if command == "add-resource":
+        do_add_run(conf, options)
+        sys.exit(0)
+
+    if command == "reserve":
+        rcode = do_reserve(conf, options)
+        sys.exit(rcode)
+
+    if command == "release-resource":
+        rcode = do_release(conf, options)
+        sys.exit(rcode)
+
+    if command == "list-resources":
+        do_list_resources(conf, options)
+
+    if command == "query-request":
+        do_query_request(conf, options)
+        sys.exit(0)
+
+    if command in ["power-on", "power-off", "power-cycle"]:
+        user_check(conf)
+        try:
+            do_power_control(conf, options, command)
+        except Exception as e:
+            sys.exit(str(e) + '\n' + command_help[command][1])
+
+    # all non-board commands have been handled
+    #if command in board_mod_commands:
+    #   check_reservation(bmap, command)
+
+    board_names, options = get_board_arg(command, conf, options, "!m")
+    board_name = board_names[0]
+
+    bmap = get_fuego_boards(conf)
+    board = bmap[board_name]
+    bvars = get_board_vars(board, conf)
+
+    # process the command
+    if command == "query-board":
+        do_query_board(bvars, options)
+        sys.exit(0)
+
+    if command == "set-var":
+        do_set_var(bvars, options)
+        sys.exit(0)
+
+    if command == "delete-var":
+        do_delete_var(bvars, options)
+        sys.exit(0)
+
+    error_out("Unknown command %s" % command)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,31 @@
+Here are some notes about lcserver - the LabControl server implementation.
+
+This server is a CGI script that provides
+point for  objects.  Current objects supported are:
+  * boards and board management processes, hardware and services
+
+== programatic interface ==
+The server handles requests from lc to put, update, query, get, and remove
+objects, via it's web API.
+
+== user interface ==
+The server handles showing a user interface to examine the objects on
+the server.
+
+It can show lists of objects, and the content of individual objects.
+
+Files:
+ lcserver.py - the LabControl server
+ test-server.py - a python web server (supports CGI) for testing purposes
+ start_server - a shell script to start the test server
+ make-otp-file - script used to create a one-time-pad file
+   (which is used for authenticating operations from labs)
+
+Data Files:
+ The 'lc-data' directory hierarchy has single files (usually json) that are
+ used to represent objects, including boards, resources, and requests
+  * boards - board-{name}.json files
+  * resources - resource-{name}.json files
+  * requests - request-{name-timestamp}.json files
+  * logs - log-{name-timestamp}.txt files
+

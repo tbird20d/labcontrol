@@ -1,0 +1,45 @@
+#!/bin/sh
+# make the one-time-pad file for a lab
+#
+# 
+
+
+usage() {
+   echo "Usage: make-otp-file <labname>"
+}
+
+if [ -z $1 ] ; then
+    echo "Error: Missing name of lab to create file for"
+    usage
+    exit 1
+fi
+
+if [ "$1" = "-h" -o "$1" = "--help" ] ; then
+    usage
+    exit 0
+fi
+
+if [ ! -d private-data ] ; then
+    echo "Error: Missing 'private-data' directory"
+    echo "Please make sure to run this program in the root fserver directory"
+    exit 1
+fi
+
+LAB=$1
+FILEPATH=private-data/lab-$LAB.otp
+
+if [ -f $FILEPATH ] ; then
+    echo "Error: File $FILEPATH already exists"
+    echo "If you want to regenerate it, please remove it first"
+    exit 1
+fi
+
+echo "Generating 1G of random data for one-time-pad file..."
+echo "   This may take about 45 seconds."
+
+# tip: 'head' is faster than 'dd' for this (37s vs. 45s)
+head -c 1G </dev/urandom >$FILEPATH
+
+echo "Please transfer the file $FILEPATH to $LAB, using"
+echo "  secure medium. (preferably using something like the"
+echo "  physical exchange of a USB stick)"

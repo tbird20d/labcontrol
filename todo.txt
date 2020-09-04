@@ -1,0 +1,60 @@
+To Do file for labcontrol:
+
+ - make a cgi script for performing lab control
+ - make a cli to interact with server
+ - define schema for commands
+ - define lab objects/resources
+   - define boards statically
+   - power controller
+   - bus controller
+   - power monitor
+   - serial connection
+   - network connection
+ - object attributes
+   - boards:
+ - define resource verbs
+   - turn on/turn off
+   - connect
+   - configure
+   - start/stop
+ - define labcontrol operations
+   - query objects/resources
+
+Postponed for now:
+ - add security
+   - require authentication itself to add, update or remove requests
+   - require authentication to add tests or binary packages
+
+ - eliminate pages directory
+   - don't create tbwiki file for request in do_put_request
+ - integrate FuegoShow into fserver.py
+   - is fuego integration being added or removed?
+
+= security notes =
+     - use otp file (lab-<labname>.otp) to authenticate operations
+       - use for only certain operations:
+         - submission of requests, tests, binary-packages
+         - change of state for requests
+       (others operations don't need security, unless server is private)
+         - is this correct
+     - algorithm to use the file is:
+       - on client side:
+         - select offset
+           - generate random offset (multiple of 32)
+         - seek to that offset
+           - read file (32 bytes), is value is zero, start over
+             - if start over too many times, search linearly for next
+                non-zero address, starting from last seek position
+           - zero out the bytes at the offset
+           - sync file
+         - send (labname, offset and value) with operation
+       - on server side:
+         - select file using labname
+         - seek to offset read value
+           - keep a log of operations, per lab: IP, offset, time
+           - prevent DOS attack by limiting operations to once per second
+         - zero out bytes at the offset
+         - compare sent and read values
+           - if no match, reject request
+           - if match, accept request
+       - create tool to show percent used of otp file

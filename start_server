@@ -1,0 +1,8 @@
+#!/bin/sh
+#
+# Usage: start_server [<port>]
+#
+
+unset http_proxy
+unset ftp_proxy
+exec python test-server.py $1
