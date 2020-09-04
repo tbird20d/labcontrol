@@ -358,7 +358,7 @@ def do_query_objects(req):
         msg = "Error: can't read object type ('obj_type') from form"
         send_response("FAIL", msg)
 
-    if obj_type not in ["boards", "resources", "requests"]:
+    if obj_type not in ["board", "resource", "request"]:
         msg = "Error: unsupported object type '%s' for query" % obj_type
         send_response("FAIL", msg)
 
@@ -761,10 +761,11 @@ def main(req):
     if action in action_list:
         try:
             action_function = globals().get("do_" + action)
-            action_function(req)
         except:
             msg = "Error: unsupported action '%s' (probably missing a do_%s routine)" % (action, action)
             send_response("FAIL", msg)
+
+        action_function(req)
 
         # NOTE: computer actions don't return to here, but 'show' does
         return
