@@ -128,10 +128,34 @@ may be specified, and are separated with a space.
 """),
 
 "query-board": ("Show information about a board.",
-    """Usage: lc query-board -b <board> [-q] [-n <attr>]
+    """Usage: lc query-board -b {board} [-q] [-n {attr}]
   Show information about an object.  Use the '-n' option to display
   the value of a single attribute, <attr>.  Use '-q' to show the
   attribute names only.
+"""),
+
+"list": ("Show a list of objects registered with LabControl.",
+    """Usage: lc list {obj-type} [-q] [{criteria} ...]
+  Prints a list of objects with the indicated object type, matching
+  the given criteria (if any).
+
+  Options:
+    -q         Use "quiet" mode.  This prints only the board names, with no
+               additional information. This is suitable for piping to other
+               commands.
+    {obj-type} Specify the type of objects to list
+               (must be one of: boards, resources, requests)
+    {criteria} Filter objects using the specified criteria.
+
+Each criteria is specified as string containing <name>=<value>, such as:
+host=timslab.  Asterisk (*) may be used at the beginning or end
+of the value, to indicate a wildcard match. Multiple criteria strings
+may be specified, and are separated with a space.
+
+ex: lc list boards name=b*
+
+The result is a list of boards that match the criteria.  If no
+criteria are specified, all boards are listed.
 """),
 
 "query-request": ("Show information about a request.",
@@ -214,13 +238,21 @@ the corresponding options (see README.pdu).
 Example: lc power-off board raspberrypi3"""),
 
 "power-cycle": ("Power cycle the selected board.",
-    """Usage: lc power-off board <board1>[,<board2>...]
+    """Usage: lc power-cycle board <board1>[,<board2>...]
 
 This command can be used to power cycle (reboot) a board. The board file must
 contain a definition for BOARD_CONTROL (e.g., pdudaemon or ttc) and
 the corresponding options (see README.pdu).
 
 Example: lc power-cycle board raspberrypi3"""),
+
+"reboot": ("Reboot the selected board.",
+    """Usage: lc reboot board <board1>[,<board2>...]
+
+This command can be used to reboot a board. It is the same operation
+as the 'power-cycle' command.
+
+Example: lc reboot board raspberrypi3"""),
 
 "list-requests": ("List requests matching a criteria.",
     """Usage: lc list-requests [<criteria> ...]
@@ -241,24 +273,21 @@ criteria are specified, all requests on the server are listed.
 
 }
 
-# define the log-level based output routines
-# Note that not every print should be converted.
+
+# here's a helper routine to print a variable with it's name and value
+def dvar(name):
+    print("DEBUG: python var %s=%s" % (name, caller.f_locals[name]))
+
+# define the debug/verbosity-level based output routines
+# Note that not every print should use these.
 #  if a print statement is fundamentally part of the execution
 #  of a command (e.g. the actual data from a command), it should
 #  continue to use 'print()', rather than these level-based
 #  functions.
 def dprint(msg):
-    global ll_debug
-    if ll_debug:
+    global debug
+    if debug:
         print("DEBUG: " + msg)
-
-# here's a utility routine to print a variable with it's name and value
-def dvar(name):
-    global ll_debug
-    # could call dprint, but I want to avoid the lookup if we're not debugging
-    if ll_debug:
-        caller = sys._getframe(1)
-        print("DEBUG: python var %s=%s" % (name, caller.f_locals[name]))
 
 def vprint(msg):
     global verbose
@@ -671,58 +700,6 @@ def show_list_title(title):
     return indent
 
 
-def do_list_nodes(conf):
-    node_list = [node['name'] for node in server.get_nodes()]
-    node_list.sort()
-
-    indent = show_list_title("Jenkins nodes in this system:")
-    for node in node_list:
-        if node == 'master':
-            continue
-        print indent + node
-
-    sys.exit(0)
-
-
-def do_list_remote_boards(conf, options):
-    global quiet
-
-    board_list = get_boards_from_server(conf, options)
-
-    indent = show_list_title("Boards on the LabControl server:")
-    if board_list:
-        for board in board_list:
-            print indent + board
-    else:
-        if options:
-            extra_msg = " that match the specified criteria"
-        else:
-            extra_msg = ""
-        if not quiet:
-            print("No boards found%s." % extra_msg)
-
-
-def do_list_remote_resources(conf, options):
-    url = conf.SERVER_URL_BASE+"query_resources"
-
-    data = {}
-    for criteria in options:
-        if "=" not in criteria:
-            error_out("Unrecognized criteria '%s' specified for query of requests" % criteria)
-        field, value = criteria.split("=", 1)
-        if field not in ["name", "version", "release"]:
-            error_out("Test query criteria may only use 'name', 'version', or 'release'")
-        data[field] = value
-    resp = requests.post(url, data=data)
-    result, content = resp.text.split('\n', 1)
-    if result != "OK":
-        error_out("Can't read tests from server\nServer returned message: %s" % content)
-    for run in content.split("\n"):
-        if run:
-            print(run)
-
-    sys.exit(0)
-
 class where_class:
     def __init__(self, field_name, op, value):
         self.field_name = field_name
@@ -900,7 +877,7 @@ def get_requests_from_server(conf, options):
             req_list.append(req)
     return req_list
 
-def get_boards_from_server(conf, options):
+def get_boards(conf, options):
     url = conf.SERVER_URL_BASE+"query_boards"
     valid_fields = ["board", "host", "state"]
 
@@ -927,7 +904,7 @@ def do_list_objects(conf, obj_type, options):
 
     obj_list = get_objects_from_server(conf, obj_type, options)
 
-    indent = show_list_title("%ss on the LabControl server:" % obj_type)
+    indent = show_list_title("%ss on the LabControl server:" % obj_type.title())
     if obj_list:
         for obj in obj_list:
             print indent + obj
@@ -950,6 +927,21 @@ def do_list_resources(conf, options):
 
 def do_list_requests(conf, options):
     do_list_objects(conf, "request", options)
+
+def do_list(conf, options):
+    # obj_type is a required first argument
+    try:
+        obj_type = options[0]
+        del options[0]
+    except:
+        error_out("No object type specified for list operation" + \
+                "Please specify either 'boards', 'resources' or 'requests'.")
+
+    if obj_type not in ["boards", "resources", "requests"]:
+        error_out(("Invalid object type '%s'\n" % obj_type) + \
+                "Please specify either 'boards', 'resources' or 'requests'.")
+
+    do_list_objects(conf, obj_type[:-1], options)
 
 # returns dictionary for the request
 def get_request(conf, req_id):
@@ -1208,20 +1200,6 @@ def do_put_request(conf, options):
     except:
         print_error("Missing test for operation")
         usage(1, ["put-request"])
-
-    try:
-        opts, args = getopt.gnu_getopt(options,
-            "Rs:", ["reboot", "spec="])
-    except getopt.GetoptError:
-        usage(1, ["put-request"])
-
-    spec = "default"
-    reboot = "False"
-    for o, a in opts:
-        if o in ("-R", "--reboot"):
-            reboot = "True"
-        if o in ("-s", "--spec"):
-            spec = a
 
     url = conf.SERVER_URL_BASE+"put_request"
     data = {"test_name": test_name,
@@ -1684,7 +1662,7 @@ def do_ttc(command, bvars, board_name):
     return 0
 
 def do_power_control(conf, options, command):
-    bmap = get_fuego_boards(conf)
+    bmap = get_boards(conf)
     board_names, options = get_board_arg(command, conf, options, "!,am")
 
     for board_name in board_names:
@@ -1778,8 +1756,7 @@ def main():
 
     # parse arguments
     command_list = command_help.keys()
-    command_list.extend(["--help", "-h", "add-job", "rm-job", "build-job",
-        "add-node", "rm-node"])
+    command_list.extend(["--help", "-h"])
     options = []
 
 
@@ -1862,11 +1839,14 @@ def main():
         sys.exit(0)
 
     if command == "list-boards":
-        # shows fuego boards
+        # shows register labcontrol boards
         do_list_boards(conf, options)
 
     if command == "list-requests":
         do_list_requests(conf, options)
+
+    if command == "list":
+        do_list(conf, options)
 
     if command == "wait-for":
         do_wait_for(options)
@@ -1896,24 +1876,24 @@ def main():
         do_query_request(conf, options)
         sys.exit(0)
 
-    if command in ["power-on", "power-off", "power-cycle"]:
-        user_check(conf)
-        try:
-            do_power_control(conf, options, command)
-        except Exception as e:
-            sys.exit(str(e) + '\n' + command_help[command][1])
 
     # all non-board commands have been handled
     #if command in board_mod_commands:
     #   check_reservation(bmap, command)
 
-    board_names, options = get_board_arg(command, conf, options, "!m")
-    board_name = board_names[0]
+    #board_names, options = get_board_arg(command, conf, options, "!m")
+    #board_name = board_names[0]
+    #bmap = get_boards(conf)
+    #board = bmap[board_name]
+    #bvars = get_board_vars(board, conf)
 
-    bmap = get_fuego_boards(conf)
-    board = bmap[board_name]
-    bvars = get_board_vars(board, conf)
+    if command in ["power-on", "power-off", "power-cycle", "reboot"]:
+        try:
+            do_power_control(conf, options, command)
+        except Exception as e:
+            sys.exit(str(e) + '\n' + command_help[command][1])
 
+    # LEGACY stuff follows - need to review
     # process the command
     if command == "query-board":
         do_query_board(bvars, options)
