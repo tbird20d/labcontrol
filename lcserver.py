@@ -11,16 +11,17 @@
 #  pages directory = place where web page templates are stored
 #
 #
-# The server implements both the human user interace (web pages showing
-# the status of the object store), and the computer ReST interface (used
-# for sending, modifying and retrieving the data in the store)
+# The server implements both:
+#  1. the human user interace (web pages showing the object store)
+#  2. the computer ReST interface (used for sending, modifying and
+#     retrieving the data in the store)
 #
 # To do:
 # - queries:
 #   - handle regex wildcards instead of just start/end wildcards
 # - objects:
-#   - support board registration
-#   - support resource registration
+#   - support board registration - put-board
+#   - support resource registration - put-resource
 #     - start with power-controller = ttc
 #   - support host registration
 #   - support user registration
@@ -82,17 +83,14 @@ config.files_dir = base_dir + "/files"
 config.page_dir = base_dir + "/pages"
 
 class req_class:
-    def __init__(self, config):
+    def __init__(self, config, form):
         self.config = config
         self.header_shown = False
         self.message = ""
         self.page_name = ""
         self.page_url = "page_name_not_set_error"
-        self.form = None
-        # name of page with data being pulled into current page
-        # used for things like slideshows or blogs, that get their data
-        # (potentially) from another page
-        self.processed_page = ""
+        self.form = form
+        self.html = []
 
     def set_page_name(self, page_name):
         page_name = re.sub(" ","_",page_name)
@@ -129,32 +127,34 @@ class req_class:
         self.add_to_message(msg)
         import traceback
         tb = traceback.format_exc()
-        self.add_to_message("<pre>%s\n</pre>" % tb)
+        self.add_to_message("<pre>\n%s\n</pre>\n" % tb)
 
     def show_message(self):
         if self.message:
-            print("<h2>lcserver message(s):</h2>")
-            print(self.message)
+            self.html.append("<h2>lcserver message(s):</h2>")
+            self.html.append(self.message)
 
     def show_header(self, title):
         if self.header_shown:
             return
 
-        self.header_shown = True
-
         self.header = """Content-type: text/html\n\n"""
 
         # render the header markup
-        print(self.header)
-        print('<body><h1 align="center">%s</h1>' % title)
+        self.html.append(self.header)
+        self.html.append('<body><h1 align="center">%s</h1>' % title)
+        self.header_shown = True
 
     def show_footer(self):
         self.show_message()
-        print("</body>")
+        self.html.append("</body>")
 
     def html_error(self, msg):
         return "<font color=red>" + msg + "</font><BR>"
 
+    def send_response(result, data):
+        req.html.append("Content-type: text/plain\n\n%s\n" % result)
+        req.html.append(data)
 
 # end of req_class
 #######################
@@ -165,17 +165,17 @@ def get_env(key):
     else:
         return ""
 
-def show_env(env, full=0):
+def show_env(req, env, full=0):
     env_keys = env.keys()
     env_keys.sort()
 
     env_filter=["PATH_INFO", "QUERY_STRING", "REQUEST_METHOD", "SCRIPT_NAME"]
-    print "Here is the environment:"
-    print "<ul>"
+    req.html.append("Here is the environment:")
+    req.html.append("<ul>")
     for key in env_keys:
         if full or key in env_filter:
-            print "<li>%s=%s" % (key, env[key])
-    print "</ul>"
+            req.html.append("<li>%s=%s" % (key, env[key]))
+    req.html.append("</ul>")
 
 def get_timestamp():
     t = time.time()
@@ -216,11 +216,6 @@ def save_file(req, file_field, upload_dir):
     msg += "File '%s' uploaded successfully!\n" % fileitem.filename
     return "OK", msg, filepath
 
-def send_response(result, data):
-    sys.stdout.write("Content-type: text/html\n\n%s\n" % result)
-    sys.stdout.write(data)
-    sys.stdout.flush()
-    sys.exit(0)
 
 def do_put_object(req, obj_type):
     data_dir = req.config.data_dir + os.sep + obj_type + "s"
@@ -233,7 +228,8 @@ def do_put_object(req, obj_type):
     except:
         result = "FAIL"
         msg += "Error: missing %s name in form data" % obj_type
-        send_response(result, msg)
+        req.send_response(req, result, msg)
+        return
 
     obj_dict = {}
     for k in req.form.keys():
@@ -263,12 +259,15 @@ def do_put_object(req, obj_type):
         #        break
 
     if result != "OK":
-        send_response(result, msg)
+        req.send_response(req, result, msg)
+        return
 
+    req_result = None
     if obj_type == "request":
         obj_dict["state"] = "pending"
         timestamp = get_timestamp()
         obj_name += "-" + timestamp
+        obj_dict["name"] = obj_name
 
     filename = obj_type + "-" + obj_name
     jfilepath = data_dir + os.sep + filename + ".json"
@@ -282,7 +281,12 @@ def do_put_object(req, obj_type):
     fout.close()
 
     msg += "%s accepted (filename=%s)\n" % (obj_name, filename)
-    send_response(result, msg)
+
+    if obj_type == "request":
+        req_result, req_msg = process_request(req, obj_dict)
+        msg += "%s\n%s" % (req_result, req_msg)
+
+    req.send_response(req, result, msg)
 
 # define an array with the fields that allowed to be modified
 # for each different object type:
@@ -301,13 +305,15 @@ def do_update_object(req, obj_type):
         obj_name = req.form[obj_type].value
     except:
         msg += "Error: can't read %s from form" % obj_type
-        send_response("FAIL", msg)
+        req.send_response("FAIL", msg)
+        return
 
     filename = obj_type + "-" + obj_name + ".json"
     filepath = data_dir + os.sep + filename
     if not os.path.exists(filepath):
         msg += "Error: filepath %s does not exist" % filepath
-        send_response("FAIL", msg)
+        req.send_response("FAIL", msg)
+        return
 
     # read requested object file
     import json
@@ -326,7 +332,8 @@ def do_update_object(req, obj_type):
         else:
             msg = "Error - can't change field '%s' in %s %s (not allowed)" % \
                     (k, obj_type, obj_name)
-            send_response("FAIL", msg)
+            req.send_response("FAIL", msg)
+            return
 
     # put dictionary back in json format (beautified)
     data = json.dumps(obj_dict, sort_keys=True, indent=4,
@@ -335,7 +342,7 @@ def do_update_object(req, obj_type):
     fout.write(data+'\n')
     fout.close()
 
-    send_response("OK", data)
+    req.send_response("OK", data)
 
 # try matching with simple wildcards (* at start or end of string)
 def item_match(pattern, item):
@@ -356,11 +363,13 @@ def do_query_objects(req):
         obj_type = req.form["obj_type"].value
     except:
         msg = "Error: can't read object type ('obj_type') from form"
-        send_response("FAIL", msg)
+        req.send_response("FAIL", msg)
+        return
 
     if obj_type not in ["board", "resource", "request"]:
         msg = "Error: unsupported object type '%s' for query" % obj_type
-        send_response("FAIL", msg)
+        req.send_response("FAIL", msg)
+        return
 
     data_dir = req.config.data_dir + os.sep + obj_type + "s"
     msg = ""
@@ -396,7 +405,7 @@ def do_query_objects(req):
     for obj_name in match_list:
        msg += obj_name+"\n"
 
-    send_response("OK", msg)
+    req.send_response("OK", msg)
 
 
 def old_do_query_requests(req):
@@ -477,7 +486,7 @@ def old_do_query_requests(req):
         req_id = f[:-5]
         msg += req_id+"\n"
 
-    send_response("OK", msg)
+    req.send_response("OK", msg)
 
 # FIXTHIS - could do get_next_request (with wildcards) to save a query
 def do_get_request(req):
@@ -490,13 +499,15 @@ def do_get_request(req):
         request_id = req.form["request_id"].value
     except:
         msg += "Error: can't read request_id from form"
-        send_response("FAIL", msg)
+        req.send_response("FAIL", msg)
+        return
 
     filename = request_id + ".json"
     filepath = req_data_dir + os.sep + filename
     if not os.path.exists(filepath):
         msg += "Error: filepath %s does not exist" % filepath
-        send_response("FAIL", msg)
+        req.send_response("FAIL", msg)
+        return
 
     # read requested file
     import json
@@ -505,7 +516,7 @@ def do_get_request(req):
 
     # beautify the data, for now
     data = json.dumps(mydict, sort_keys=True, indent=4, separators=(',', ': '))
-    send_response("OK", data)
+    req.send_response("OK", data)
 
 # return the url to download a run package
 def do_get_run_url(req):
@@ -516,17 +527,19 @@ def do_get_run_url(req):
         run_id = req.form["run_id"].value
     except:
         msg += "Error: can't read run_id from form"
-        send_response("FAIL", msg)
+        req.send_response("FAIL", msg)
+        return
 
     filename = run_id + ".frp"
     filepath = run_file_dir + os.sep + filename
     if not os.path.exists(filepath):
         msg += "Error: filepath %s does not exist" % filepath
-        send_response("FAIL", msg)
+        req.send_response("FAIL", msg)
+        return
 
     run_file_url = config.files_url_base + "/files/runs/" + filename
     msg += run_file_url
-    send_response("OK", msg)
+    req.send_response("OK", msg)
 
 def do_remove_object(req, obj_type):
     data_dir = req.config.data_dir + os.sep + obj_type + "s"
@@ -536,20 +549,22 @@ def do_remove_object(req, obj_type):
         obj_name = req.form[obj_type].value
     except:
         msg += "Error: can't read '%s' from form" % obj_type
-        send_response("FAIL", msg)
+        req.send_response("FAIL", msg)
+        return
 
     filename = obj_name + ".json"
     filepath = data_dir + os.sep + filename
     if not os.path.exists(filepath):
         msg += "Error: filepath %s does not exist" % filepath
-        send_response("FAIL", msg)
+        req.send_response("FAIL", msg)
+        return
 
     # FIXTHIS - should check permissions here
     # only original-submitter and resource-host are allowed to remove
     os.remove(filepath)
 
     msg += "%s %s was removed" % (obj_type, obj_name)
-    send_response("OK", msg)
+    req.send_response("OK", msg)
 
 def file_list_html(req, file_type, subdir, extension):
     if file_type == "files":
@@ -626,86 +641,36 @@ def show_request_table(req):
             html += '    <td>%s</td>\n' % req_dict[attr]
         html += '  </tr>\n'
     html += "</table>"
-    print(html)
-
-def show_run_table(req):
-    src_dir = req.config.data_dir + os.sep + "runs"
-
-    full_dirlist = os.listdir(src_dir)
-    full_dirlist.sort()
-
-    # filter list to only run....json files
-    filelist = []
-    for f in full_dirlist:
-        if f.startswith("run-") and f.endswith(".json"):
-            filelist.append(f)
-
-    if not filelist:
-        return req.html_error("No request files found.")
-
-    data_url = config.files_url_base + "/data/runs/"
-    files_url = config.files_url_base + "/files/runs/"
-    html = """<table border="1" cellpadding="2">
-  <tr>
-    <th>Run Id</th>
-    <th>Test</th>
-    <th>Spec</th>
-    <th>Host</th>
-    <th>Board</th>
-    <th>Result</th>
-    <th>Run File bundle</th>
-  </tr>
-"""
-    import json
-    for item in filelist:
-        # run_id is the filename with "run-" and ".json" removed
-        run_id = item[4:-5]
-        run_fd = open(src_dir+os.sep + item, "r")
-        run_dict = json.load(run_fd)
-        run_fd.close()
-
-        html += '  <tr>\n'
-        html += '    <td><a href="'+files_url+run_id+'">'+run_id+'</a></td>\n'
-        html += '    <td>%s</td>\n' % run_dict["name"]
-        html += '    <td>%s</td>\n' % run_dict["metadata"]["test_spec"]
-        html += '    <td>%s</td>\n' % run_dict["metadata"]["host_name"]
-        html += '    <td>%s</td>\n' % run_dict["metadata"]["board"]
-        html += '    <td><a href="'+data_url+item+'">' + run_dict["status"] + '</a></td>\n'
-        filename = item[:-4]+"frp"
-        html += '    <td><a href="'+files_url+filename+'">' + filename + '</a></td>\n'
-        html += '  </tr>\n'
-    html += "</table>"
-    print(html)
-
+    req.html.append(html)
 
 def do_show(req):
     req.show_header("Lab Control objects")
     #log_this("in do_show, req.page_name='%s'\n" % req.page_name)
-    #print("req.page_name='%s' <br><br>" % req.page_name)
+    #req.hmlt.append("req.page_name='%s' <br><br>" % req.page_name)
 
     if req.page_name not in ["boards", "resources", "requests", "logs"]:
         title = "Error - unknown object type '%s'" % req.page_name
         req.add_to_message(title)
     else:
         if req.page_name=="boards":
-            print("<H1>List of boards</h1>")
-            print(file_list_html(req, "data", "boards", ".json"))
+            req.html.append("<H1>List of boards</h1>")
+            req.html.append(file_list_html(req, "data", "boards", ".json"))
         elif req.page_name == "resources":
-            print("<H1>List of resources</h1>")
-            print(file_list_html(req, "data", "resources", ".json"))
+            req.html.append("<H1>List of resources</h1>")
+            req.html.append(file_list_html(req, "data", "resources", ".json"))
         elif req.page_name == "requests":
-            print("<H1>Table of requests</H1>")
+            req.html.append("<H1>Table of requests</H1>")
             show_request_table(req)
         elif req.page_name == "logs":
-            print("<H1>Table of logs</H1>")
-            print(file_list_html(req, "files", "logs", ".txt"))
+            req.html.append("<H1>Table of logs</H1>")
+            req.html.append(file_list_html(req, "files", "logs", ".txt"))
 
     if req.page_name != "main":
-        print("<br><hr>")
+        req.html.append("<br><hr>")
 
-    print("<H1>Fuego objects on this server</h1>")
-    print("""
-Here are links to the different Fuego objects:<br>
+    req.html.append("<H1>Lab Control objects on this server</h1>")
+    req.html.append("""
+Here are links to the different Lab Control objects:<br>
 <ul>
 <li><a href="%(url_base)s/boards">Boards</a></li>
 <li><a href="%(url_base)s/resources">Resources</a></li>
@@ -715,9 +680,9 @@ Here are links to the different Fuego objects:<br>
 <hr>
 """ % req.config )
 
-    print("""<a href="%(url_base)s">Back to home page</a>""" % req.config)
+    req.html.append("""<a href="%(url_base)s">Back to home page</a>""" % req.config)
 
-def main(req):
+def handle_request(environ, req):
     # parse request
     query_string = get_env("QUERY_STRING")
 
@@ -743,14 +708,12 @@ def main(req):
 
     # NOTE: uncomment this when you get a 500 error
     #req.show_header('Debug')
-    #show_env(os.environ)
+    #show_env(req, os.environ)
     log_this("in main request loop: action='%s'<br>" % action)
-    #print("in main request loop: action='%s'<br>" % action)
+    #req.add_to_message("in main request loop: action='%s'<br>" % action)
 
     # perform action
-    req.form = cgi.FieldStorage()
-
-    action_list = ["show", "add_board", "add_resource", "add_request",
+    action_list = ["show", "add_board", "add_resource", "put_request",
             "query_objects",
             "get_board", "get_resource", "get_request",
             "remove_board", "remove_resource", "remove_request",
@@ -763,32 +726,42 @@ def main(req):
             action_function = globals().get("do_" + action)
         except:
             msg = "Error: unsupported action '%s' (probably missing a do_%s routine)" % (action, action)
-            send_response("FAIL", msg)
+            req.send_response("FAIL", msg)
+            return
 
         action_function(req)
-
-        # NOTE: computer actions don't return to here, but 'show' does
         return
 
     req.show_header("LabControl server Error")
-    print(req.html_error("Unknown action '%s'" % action))
+    req.html.append(req.html_error("Unknown action '%s'" % action))
 
 
-req = req_class(config)
+def cgi_main():
+    form = cgi.FieldStorage()
 
-if __name__=="__main__":
+    req = req_class(config, form)
+
     try:
-        main(req)
-        req.show_message()
+        handle_request(os.environ, req)
     except SystemExit:
         pass
     except:
         req.show_header("LabControl Server Error")
-        print """<font color="red">Exception raised by lcserver software</font>"""
+        req.html.append('<font color="red">Execution raised by software</font>')
+
         # show traceback information here:
-        print "<pre>"
+        req.html.append("<pre>")
         import traceback
         (etype, evalue, etb) = sys.exc_info()
-        traceback.print_exception(etype, evalue, etb, None, sys.stdout)
-        print "</pre>"
+        tb_msg = traceback.format_exc()
+        req.html.append("traceback=%s" % tb_msg)
+        req.html.append("</pre>")
 
+    # output html to stdout
+    for line in req.html:
+        print(line)
+
+    sys.stdout.flush()
+
+if __name__=="__main__":
+    cgi_main()
