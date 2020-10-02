@@ -3,15 +3,14 @@ This is sometimes referred to a board farm.
 
 LabControl consists of two main elements:
  - the LabControl server, which stores items that represent the lab
-    resources and 
-
-json and yaml test object web server.
+   boards and resources
+ - the labcontrol client, which can add items to the server, and
+   issue commands to resources in the lab
 
 Introduction
 ============
 LabControl server handles the user interface (HTML),
-as well as web-based object storage for 
-the following Fuego objects
+as well as web-based object storage for the following lab objects
  * Boards
  * Resources
 
