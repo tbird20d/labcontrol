@@ -77,9 +77,10 @@ class fServerRequestHandler(CGIHTTPServer.CGIHTTPRequestHandler):
         self.log_message("parts=%s" % str(parts))
         if parts.path.endswith(".py"):
             self.cgi_info = os.path.dirname(parts.path), os.path.basename(parts.path) + "?" + parts.query
+            self.log_message("cgi_info=%s" % str(self.cgi_info))
             return True
 
-        #self.log_message("os.path.dirname(parts.path)=%s" % os.path.dirname(parts.path))
+        self.log_message("os.path.dirname(parts.path)=%s" % os.path.dirname(parts.path))
         # allow foo.py/PageName?query_name=query_value
         # that is, one level of path past the script name
         path_dir = os.path.dirname(parts.path)
@@ -87,9 +88,25 @@ class fServerRequestHandler(CGIHTTPServer.CGIHTTPRequestHandler):
             dirpart = os.path.dirname(path_dir)
             rest = parts.path[len(dirpart):]
             self.cgi_info = dirpart, rest + "?" + parts.query
-            #self.log_message("cgi_info=%s" % str(self.cgi_info))
+            self.log_message("cgi_info=%s" % str(self.cgi_info))
             return True
 
+        # interpret any path element ending in .py to be a script
+        #self.log_message("os.path.dirname(parts.path)=%s" % os.path.dirname(parts.path))
+        # allow foo.py/item1/item2?name=value
+        path_dir = os.path.dirname(parts.path)
+        dirpart = ""
+        elements = path_dir.split("/")
+        index = 0
+        for element in elements:
+            if element.endswith(".py"):
+                rest = "/".join(elements[index:])
+                self.cgi_info = dirpart, rest + "?" + parts.query
+                self.log_message("cgi_info=%s" % str(self.cgi_info))
+                return True
+            else:
+                dirpart += "/" + element
+                index += 1
         return False
 
     def is_python(self, path):
