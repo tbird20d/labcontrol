@@ -16,15 +16,28 @@
 #  2. the computer ReST interface (used for sending, modifying and
 #     retrieving the data in the store)
 #
+# The server currently supports the top-level "pages":
+#   boards, requests, resources logs
+#
+# currently, the lc command uses request to send urls like:
+#  POST /lcserver.py/?action=query_objects
+#  I'm calling this the 'action api'
+#
+# The labcontrol API specified with Timesys uses urls like this:
+#  /api/devices/bbb/power/reboot
+# I'm calling this the 'path api'
+#
 # To do:
+# - actions:
+#   - start with power-control = power-controller/reboot
 # - queries:
 #   - handle regex wildcards instead of just start/end wildcards
 # - objects:
 #   - support board registration - put-board
 #   - support resource registration - put-resource
-#     - start with power-controller = ttc
 #   - support host registration
 #   - support user registration
+# - requests:
 # - security:
 #   - add otp authentication to all requests
 #     - check host's otp file for specified key
@@ -152,18 +165,12 @@ class req_class:
     def html_error(self, msg):
         return "<font color=red>" + msg + "</font><BR>"
 
-    def send_response(result, data):
-        req.html.append("Content-type: text/plain\n\n%s\n" % result)
-        req.html.append(data)
+    def send_response(self, result, data):
+        self.html.append("Content-type: text/plain\n\n%s\n" % result)
+        self.html.append(data)
 
 # end of req_class
 #######################
-
-def get_env(key):
-    if os.environ.has_key(key):
-        return os.environ[key]
-    else:
-        return ""
 
 def show_env(req, env, full=0):
     env_keys = env.keys()
@@ -518,29 +525,6 @@ def do_get_request(req):
     data = json.dumps(mydict, sort_keys=True, indent=4, separators=(',', ': '))
     req.send_response("OK", data)
 
-# return the url to download a run package
-def do_get_run_url(req):
-    run_file_dir = req.config.files_dir + os.sep + "runs"
-    msg = ""
-
-    try:
-        run_id = req.form["run_id"].value
-    except:
-        msg += "Error: can't read run_id from form"
-        req.send_response("FAIL", msg)
-        return
-
-    filename = run_id + ".frp"
-    filepath = run_file_dir + os.sep + filename
-    if not os.path.exists(filepath):
-        msg += "Error: filepath %s does not exist" % filepath
-        req.send_response("FAIL", msg)
-        return
-
-    run_file_url = config.files_url_base + "/files/runs/" + filename
-    msg += run_file_url
-    req.send_response("OK", msg)
-
 def do_remove_object(req, obj_type):
     data_dir = req.config.data_dir + os.sep + obj_type + "s"
     msg = ""
@@ -646,9 +630,9 @@ def show_request_table(req):
 def do_show(req):
     req.show_header("Lab Control objects")
     #log_this("in do_show, req.page_name='%s'\n" % req.page_name)
-    #req.hmlt.append("req.page_name='%s' <br><br>" % req.page_name)
+    #req.html.append("req.page_name='%s' <br><br>" % req.page_name)
 
-    if req.page_name not in ["boards", "resources", "requests", "logs"]:
+    if req.page_name not in ["boards", "resources", "requests", "logs", "main"]:
         title = "Error - unknown object type '%s'" % req.page_name
         req.add_to_message(title)
     else:
@@ -682,38 +666,44 @@ Here are links to the different Lab Control objects:<br>
 
     req.html.append("""<a href="%(url_base)s">Back to home page</a>""" % req.config)
 
+    req.show_footer()
+
+def do_api(req):
+    # determine api operation to perform from path
+    req_path = environ.get("PATH_INFO", "")
+
+
 def handle_request(environ, req):
-    # parse request
-    query_string = get_env("QUERY_STRING")
-
     # determine action, if any
-    query_parts = query_string.split("&")
-    action = "show"
-    for qpart in query_parts:
-        if qpart.split("=")[0]=="action":
-            action=qpart.split("=")[1]
-
+    action = req.form.getfirst("action", "show")
     #req.add_to_message('action="%s"<br>' % action)
+    req.action = action
 
-    # get page name
-    page_name = get_env("PATH_INFO")
-    if not page_name:
-        page_name = "/main"
-    page_name = os.path.basename(page_name)
+    # get page name (last element of path)
+    req_path = environ.get("PATH_INFO", "%s/main" % req.config.url_base)
+    page_name = os.path.basename(req_path)
+    if page_name == os.path.basename(req.config.url_base):
+        page_name = "main"
     req.set_page_name(page_name)
 
     #req.add_to_message("page_name=%s" % page_name)
 
-    req.action = action
+    # see if /api is in path
+    if "api" in req_path.split("/"):
+        action = "api"
+
+    #req.add_to_message("api=%s" % api)
 
     # NOTE: uncomment this when you get a 500 error
     #req.show_header('Debug')
-    #show_env(req, os.environ)
-    log_this("in main request loop: action='%s'<br>" % action)
+    #show_env(req, environ)
+    #show_env(req, environ, True)
+    log_this("in main request loop: action='%s', page_name='%s'<br>" % (action, page_name))
     #req.add_to_message("in main request loop: action='%s'<br>" % action)
 
     # perform action
-    action_list = ["show", "add_board", "add_resource", "put_request",
+    action_list = ["show", "api",
+            "add_board", "add_resource", "put_request",
             "query_objects",
             "get_board", "get_resource", "get_request",
             "remove_board", "remove_resource", "remove_request",
