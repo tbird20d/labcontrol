@@ -819,8 +819,7 @@ def get_objects_from_server(conf, obj_type, options):
     data = {}
     data["obj_type"] = obj_type
 
-    valid_fields = ["board", "host", "precleanup", "postcleanup",
-                    "reboot", "rebuilt", "request_time", "requestor", "run_id",
+    valid_fields = ["board", "host", "request_time", "requestor", "run_id",
                     "spec", "state", "test_name"]
 
     for criteria in options:
@@ -835,7 +834,7 @@ def get_objects_from_server(conf, obj_type, options):
     resp = requests.post(url, data=data)
     result, content = resp.text.split('\n', 1)
     if result != "OK":
-        error_out("Can't read %ssfrom server\nServer returned message: %s" % (obj_type, content))
+        error_out("Can't read %ss from server\nServer returned message: %s" % (obj_type, content))
     obj_list = []
     for obj in content.split("\n"):
         if obj:
@@ -877,27 +876,9 @@ def get_requests_from_server(conf, options):
             req_list.append(req)
     return req_list
 
-def get_boards(conf, options):
-    url = conf.SERVER_URL_BASE+"query_boards"
-    valid_fields = ["board", "host", "state"]
-
-    data = {}
-    for criteria in options:
-        if "=" not in criteria:
-            error_out("Unrecognized criteria '%s' specified for query of boards" % criteria)
-        field, value = criteria.split("=", 1)
-        if field not in valid_fields:
-            error_out("Request query criteria must be one of %s" % valid_fields)
-        data[field] = value
-    resp = requests.post(url, data=data)
-    result, content = resp.text.split('\n', 1)
-    if result != "OK":
-        error_out("Can't read requests from server\nServer returned message: %s" % content)
-    req_list = []
-    for req in content.split("\n"):
-        if req:
-            req_list.append(req)
-    return req_list
+def get_boards(conf):
+    obj_list = get_objects_from_server(conf, "board", [])
+    return obj_list
 
 def do_list_objects(conf, obj_type, options):
     global quiet
@@ -1287,7 +1268,7 @@ def match_from_list(item, item_list):
 #   m = allow match with longer name, if match is unique
 #
 # you must specify ',' if you specify 'a'
-# routine allows for using FUEGO_BOARD, if it's in the environment
+# routine allows for using LC_BOARD, if it's in the environment
 #
 # returns (board_name_list, options)
 #   board_name_list might only contain a single entry
@@ -1298,11 +1279,11 @@ def match_from_list(item, item_list):
 #   board all        # expands to all installed boards
 #
 def get_board_arg(cmd, conf, options, flags):
-    # check for 'b', or environment variable
+    # check for 'board' keyword, or environment variable
     # specified option has precedence over environment variable
     if 'board' not in options:
         try:
-            board_name = os.environ["LC_BOARD"]
+            board_names = os.environ["LC_BOARD"]
         except:
             # ok - no board specified, is it required?
             if '!' in flags:
@@ -1317,22 +1298,23 @@ def get_board_arg(cmd, conf, options, flags):
 
     pos = options.index('board')
     try:
-        board_name = options[pos + 1]
+        board_names = options[pos + 1]
     except IndexError:
         error_out("Board not provided after 'board'.")
 
     del(options[pos+1])
     del(options[pos])
 
-    # now we have a comma-separated list
-
+    # now we have a single board or a comma-separated list
     if ',' in board_names and ',' not in flags:
         error_out("Multiple board names '%s' is not allowed" % board_names)
+
+    avail_boards = get_boards(conf)
 
     # now check for board presence and short-matching
     board_list = []
     for board in board_names.split(','):
-        if board in site_boards:
+        if board in avail_boards:
             board_list.append(board)
             continue
 
@@ -1340,7 +1322,7 @@ def get_board_arg(cmd, conf, options, flags):
         matching_str = ""
         if 'm' in flags:
             matching_str = "matching "
-            match_board = match_from_list(board, site_boards)
+            match_board = match_from_list(board, avail_boards)
             if match_board:
                 if match_board == "*multiple*":
                     error_out("Multiple boards matched '%s'; cannot proceed." % board)
@@ -1351,6 +1333,7 @@ def get_board_arg(cmd, conf, options, flags):
         error_out("Board %s'%s' not found." % (matching_str, board))
 
     return (board_list, options)
+
 
 def do_query_board(bvars, options):
     global quiet
@@ -1662,23 +1645,11 @@ def do_ttc(command, bvars, board_name):
     return 0
 
 def do_power_control(conf, options, command):
-    bmap = get_boards(conf)
-    board_names, options = get_board_arg(command, conf, options, "!,am")
+    board_names, options = get_board_arg(command, conf, options, "!m")
+    board = board_names[0]
 
-    for board_name in board_names:
-        board = bmap[board_name]
-        bvars = get_board_vars(board, conf)
-        if 'BOARD_CONTROL' in bvars:
-            board_control = bvars['BOARD_CONTROL']
-        else:
-            error_out("BOARD_CONTROL is not defined for %s" % board_name)
+    print("Should do power_control %s on board %s here" % (command, board))
 
-        if board_control in ["pdudaemon", "PDUDAEMON", "PDUDaemon", "PDUdaemon"]:
-            do_pdudaemon(command, bvars)
-        elif board_control in ["ttc", "TTC", "Ttc"]:
-            do_ttc(command, bvars, board_name)
-        else:
-            error_out("BOARD_CONTROL value %s is not supported" % board_control)
     sys.exit(0)
 
 # this takes an exception object (e), and formats it as a string
