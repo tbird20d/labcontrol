@@ -29,7 +29,7 @@
 #
 # To do:
 # - actions:
-#   - start with power-control = power-controller/reboot
+#    - support reserve/release
 # - queries:
 #   - handle regex wildcards instead of just start/end wildcards
 # - objects:
@@ -775,6 +775,11 @@ def exec_command(req, board_map, resource_map, res_cmd):
         return
 
     cmd_str = resource_map[res_cmd_str]
+
+    # FIXTHIS - do substitution of variables from board_map and resource_map
+    # this allows a command to refer to a variable defined in the board
+    # or resource data
+
     rcode, result = getstatusoutput(cmd_str)
     if rcode:
         msg = "Result of %s operation on resource %s = %d" % (res_cmd, resource["name"], rcode)
@@ -783,6 +788,28 @@ def exec_command(req, board_map, resource_map, res_cmd):
         return
 
     req.send_response("OK", "")
+
+
+def return_power_status(req, board_map, pdu_map):
+    # lookup command to execute in resource_map
+    if "status_cmd" not in pdu_map:
+        msg = "Resource '%s' does not have status_cmd attribute, cannot execute" % (pdu_map["name"])
+        req.send_response("FAIL", msg)
+        return
+
+    cmd_str = pdu_map["status_cmd"]
+    rcode, result = getstatusoutput(cmd_str)
+    if rcode:
+        msg = "Result of power status operation on board %s = %d" % (board_map["name"], rcode)
+        msg += "command output='%s'" % result
+        req.send_response("FAIL", msg)
+        return
+
+    # FIXTHIS - translate result here, if needed
+    # need to determine required output format
+
+    req.send_response("OK", result)
+
 
 # rest is a list of the rest of the path
 def return_api_board_action(req, board, action, rest):
@@ -801,24 +828,13 @@ def return_api_board_action(req, board, action, rest):
             return
 
         if not rest:
-            #do_resource_action(pdu_map, board, "status")
-            msg = "power status not supported"
-            req.send_response("FAIL", msg)
+            return_power_status(req, board_map, pdu_map)
             return
-        elif rest[0] == "on":
-            #do_resource_action(pdu_map, board, "on")
-            msg = "power on not supported"
-            req.send_response("FAIL", msg)
+        elif rest[0] == "status":
+            return_power_status(req, board_map, pdu_map)
             return
-        elif rest[0] == "off":
-            msg = "power off not supported"
-            req.send_response("FAIL", msg)
-            return
-        elif rest[0] == "reboot":
-            msg = "power reboot not supported"
-            msg += " - but found power controller '%s'" % pdu_map["name"]
-            req.send_response("FAIL", msg)
-            exec_command(req, board_map, pdu_map, "reboot")
+        elif rest[0] in ["on", "off", "reboot"]:
+            exec_command(req, board_map, pdu_map, rest[0])
             return
         else:
             msg = "power action '%s' not supported" % rest[0]
