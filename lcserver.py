@@ -57,6 +57,11 @@ import tempfile
 #import json
 #import yaml
 
+try:
+    from subprocess import getstatusoutput
+except:
+    from commands import getstatusoutput
+
 VERSION=(0,6,0)
 
 # precedence of installation locations:
@@ -668,12 +673,224 @@ Here are links to the different Lab Control objects:<br>
 
     req.show_footer()
 
-def do_api(req):
-    # determine api operation to perform from path
-    req_path = environ.get("PATH_INFO", "")
+def get_object_list(req, obj_type):
+    data_dir = req.config.data_dir + os.sep + obj_type + "s"
+    obj_list = []
 
+    filelist = os.listdir(data_dir)
+    prefix = obj_type+"-"
+    for f in filelist:
+        if f.startswith(prefix) and f.endswith(".json"):
+            # remove board- and '.json' to get the board_name
+            obj_name = f[len(prefix):-5]
+            obj_list.append(obj_name)
+
+    obj_list.sort()
+    return obj_list
+
+
+# supported api actions by path:
+# devices = list boards
+# devices/{board} = show board data (json file data)
+# devices/{board}/status = show board status
+# devices/{board}/reboot = reboot board
+# resources = list resources
+# resources/{resource} = show resource data (json file data)
+
+
+def return_api_object_list(req, obj_type):
+    obj_list = get_object_list(req, obj_type)
+
+    msg = ""
+    for obj_name in obj_list:
+        msg += obj_name + "\n"
+
+    req.send_response("OK", msg)
+
+def get_object_data(req, obj_type, obj_name):
+    filename = obj_type + "-" + obj_name + ".json"
+    file_path = "%s/%ss/%s-%s.json" %  (req.config.data_dir, obj_type, obj_type, obj_name)
+
+    #msg = "in get_object_data - file_path is '%s'" % file_path
+    #req.send_response("INFO", msg)
+
+    if not os.path.isfile(file_path):
+        msg = "%s object '%s' in not recognized by the server" % (obj_type, obj_name)
+        msg += "- file_path was '%s'" % file_path
+        req.send_response("FAIL", msg)
+        return {}
+
+    data = ""
+    try:
+        data = open(file_path, "r").read()
+    except:
+        msg = "Could not retrieve information for %s '%s'" % (obj_type, obj_name)
+        msg += "- file_path was '%s'" % file_path
+        req.send_response("FAIL", msg)
+        return {}
+
+    return data
+
+def get_object_map(req, obj_type, obj_name):
+    data = get_object_data(req, obj_type, obj_name)
+    if not data:
+        return {}
+    try:
+        import json
+        obj_map = json.loads(data)
+    except:
+        msg = "Invalid json detected in %s '%s'" % (obj_type, obj_name)
+        msg += "\njson='%s'" % data
+        req.send_response("FAIL", msg)
+        return {}
+
+    return obj_map
+
+def get_connected_resource(req, board_map, resource_type):
+    # look up connected resource type in board map
+    resource = board_map.get(resource_type, None)
+    if not resource:
+        msg = "Could not find a %s resource connected to board '%s'" % (resource_type, board)
+        req.send_response("FAIL", msg)
+        return None
+
+    resource_map = get_object_map(req, "resource", resource)
+    return resource_map
+
+def return_api_object_data(req, obj_type, obj_name):
+    # do default action for an object - return json file data (as a string)
+    data = get_object_data(req, obj_type, obj_name)
+    if not data:
+        return
+
+    req.send_response("OK", data)
+
+# execute a resource command
+def exec_command(req, board_map, resource_map, res_cmd):
+    # lookup command to execute in resource_map
+    res_cmd_str = res_cmd + "_cmd"
+    if res_cmd_str not in resource_map:
+        msg = "Resource '%s' does not have %s attribute, cannot execute" % (resource["name"], res_cmd_str)
+        req.send_response("FAIL", msg)
+        return
+
+    cmd_str = resource_map[res_cmd_str]
+    rcode, result = getstatusoutput(cmd_str)
+    if rcode:
+        msg = "Result of %s operation on resource %s = %d" % (res_cmd, resource["name"], rcode)
+        msg += "command output='%s'" % result
+        req.send_response("FAIL", msg)
+        return
+
+    req.send_response("OK", "")
+
+# rest is a list of the rest of the path
+def return_api_board_action(req, board, action, rest):
+    if board not in get_object_list(req, "board"):
+        msg = "Could not find board '%s' registered with server" % board
+        req.send_response("FAIL", msg)
+        return
+
+    board_map = get_object_map(req, "board", board)
+    if not board_map:
+        return
+
+    if action == "power":
+        pdu_map = get_connected_resource(req, board_map, "power-controller")
+        if not pdu_map:
+            return
+
+        if not rest:
+            #do_resource_action(pdu_map, board, "status")
+            msg = "power status not supported"
+            req.send_response("FAIL", msg)
+            return
+        elif rest[0] == "on":
+            #do_resource_action(pdu_map, board, "on")
+            msg = "power on not supported"
+            req.send_response("FAIL", msg)
+            return
+        elif rest[0] == "off":
+            msg = "power off not supported"
+            req.send_response("FAIL", msg)
+            return
+        elif rest[0] == "reboot":
+            msg = "power reboot not supported"
+            msg += " - but found power controller '%s'" % pdu_map["name"]
+            req.send_response("FAIL", msg)
+            exec_command(req, board_map, pdu_map, "reboot")
+            return
+        else:
+            msg = "power action '%s' not supported" % rest[0]
+            req.send_response("FAIL", msg)
+            return
+
+    msg = "action '%s' not supported (rest='%s')" % (action, rest)
+    req.send_response("FAIL", msg)
+
+def do_api(req):
+    # determine api operation from path
+    req_path = req.environ.get("PATH_INFO", "")
+    path_parts = req_path.split("/")
+    # get the path elements after 'api'
+    parts = path_parts[path_parts.index("api")+1:]
+
+    #req.show_header("in do_api")
+    #req.html.append("parts=%s" % parts)
+
+    if not parts:
+        msg = "Invalid empty path after /api"
+        req.send_response("FAIL", msg)
+        return
+
+    if parts[0] == "devices":
+        if len(parts) == 1:
+            # handle /api/devices - list devices
+            # list devices (boards)
+            return_api_object_list(req, "board")
+            return
+        else:
+            board = parts[1]
+            if len(parts) == 2:
+                # handle api/device/{board}
+                return_api_object_data(req, "board", board)
+                return
+            else:
+                action = parts[2]
+                rest = parts[3:]
+                return_api_board_action(req, board, action, rest)
+                return
+        return
+    elif parts[0] == "resources":
+        if len(parts) == 1:
+            # handle /api/resources - list resources
+            # list devices
+            return_api_object_list(req, "resource")
+            return
+        else:
+            resource = parts[1]
+            if len(parts) == 2:
+                # handle api/resource/{resource}
+                return_api_object_data(req, "resource", resource)
+                return
+            else:
+                action = parts[2]
+                rest = parts[3:]
+                msg = "Unsupported elements '%s/%s' after /api/resources" % (action, "/".join(rest))
+                req.send_response("FAIL", msg)
+                return
+    else:
+        msg = "Unsupported element '%s' after /api/" % parts[0]
+        req.send_response("FAIL", msg)
+        return
+
+    req.html.append("""<a href="%(url_base)s">Back to home page</a>""" % req.config)
+
+    req.show_footer()
 
 def handle_request(environ, req):
+    req.environ = environ
+
     # determine action, if any
     action = req.form.getfirst("action", "show")
     #req.add_to_message('action="%s"<br>' % action)
