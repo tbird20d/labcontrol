@@ -1,17 +1,42 @@
 To Do file for labcontrol:
 
- - make a cgi script for performing lab control
- - make a cli to interact with server
+(See NOTES file for how to restart work)
+
+= to do =
+ - switch lc to use api paths (?)
+ - support reservations
+ - support users
+ - allow users to connect resources to boards
+ - allow users to disconnect resources from boards
+ - allow users register boards
+ - allow users register resources
+ - allow users to update board info
+ - allow users to update resource info
+ - support 'lc board bbb reboot'
+
+Things that work:
+ + lc list boards - using action api
+ + lc list resources - using action api
+ + wget -q -O- http://localhost:8000/api/devices - using path api
+ + wget .../api/devices/bbb
+ + wget .../api/devices/bbb/power
+ + wget .../api/devices/bbb/power/status
+ + wget .../api/devices/bbb/power/on
+ + wget .../api/devices/bbb/power/off
+ + wget .../api/devices/bbb/power/reboot
+
+= high level to dos =
  - define schema for commands
+   - see https://fuegotest.org/wiki/LabControl_project
  - define lab objects/resources
-   - define boards statically
-   - power controller
+   + define boards statically
+   + power controller
    - bus controller
    - power monitor
    - serial connection
    - network connection
- - object attributes
-   - boards:
+ - define object attributes
+   - boards: name, lab, description, power-controller
  - define resource verbs
    - turn on/turn off
    - connect
