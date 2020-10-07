@@ -11,9 +11,11 @@
 #  pages directory = place where web page templates are stored
 #
 #
-# The server implements both:
-#  1. the human user interace (web pages showing the object store)
-#  2. the computer ReST interface (used for sending, modifying and
+# The server implements three interfaces:
+#  1. the human user interace (web pages showing objects and available
+#  actions)
+#  2. a human user interace showing raw object (files and json contents)
+#  3. the computer ReST interface (used for sending, modifying and
 #     retrieving the data in the store)
 #
 # The server currently supports the top-level "pages":
@@ -109,6 +111,8 @@ class req_class:
         self.page_url = "page_name_not_set_error"
         self.form = form
         self.html = []
+        self.api_path = ""
+        self.obj_path = ""
 
     def set_page_name(self, page_name):
         page_name = re.sub(" ","_",page_name)
@@ -227,7 +231,6 @@ def save_file(req, file_field, upload_dir):
     fout.close()
     msg += "File '%s' uploaded successfully!\n" % fileitem.filename
     return "OK", msg, filepath
-
 
 def do_put_object(req, obj_type):
     data_dir = req.config.data_dir + os.sep + obj_type + "s"
@@ -632,18 +635,119 @@ def show_request_table(req):
     html += "</table>"
     req.html.append(html)
 
+# NOTE: we're inside a table cell here
+def show_board_info(req, bmap):
+    # list of connected resources
+    # FIXTHIS - what to show here:
+    # status, action button for reboot
+    # reservations
+    req.html.append("<h3>Resources</h3>\n<ul>")
+    pc = bmap.get("power-controller", "")
+    resource_shown = False
+    if pc:
+        req.html.append("<li>Power controller: %s</li>\n" % pc)
+        resource_shown = True
+    if not resource_shown:
+        req.html.append("<li><i>No connected resources found!</i></li>\n")
+    req.html.append("</ul>\n")
+
+
+    req.html.append("<h3>Status</h3>\n<ul>")
+
+    reservation = bmap.get("reservation", "None")
+    req.html.append("<li>Reservation: %s</li>" % reservation)
+
+    # show power status
+    if pc:
+       (result, msg) = get_power_status(req, bmap)
+       if result == "OK":
+           power_status = msg
+       else:
+           power_status = req.html_error(msg)
+    else:
+       power_status = "Unknown"
+    req.html.append("<li>Power Status: %s</li>\n" % power_status)
+
+    req.html.append("</ul>\n")
+
+    req.html.append("<h3>Actions</h3>\n<ul>\n")
+    if pc:
+        reboot_link = req.config.url_base + "?board=%s&action=reboot" % (bmap["name"])
+        req.html.append("""
+<form method="get" action=%s>
+<input type="hidden" name="board" value="%s">
+<input type="hidden" name="action" value="reboot">
+<input type="submit" name="button" value="Reboot">
+</form>
+""" % (bmap["name"], reboot_link))
+    req.html.append("</ul>")
+
+# returns (result, msg)
+def get_power_status(req, bmap):
+    pdu_map = get_connected_resource(req, bmap, "power-controller")
+    if not pdu_map:
+        msg = "Board %s has no connected power-controller resource" % bmap["name"]
+        return ("FAIL", msg)
+
+    # lookup command to execute in resource_map
+    if "status_cmd" not in pdu_map:
+        msg = "Resource '%s' does not have status_cmd attribute, cannot execute" % pdu_map["name"]
+        return ("FAIL", msg)
+
+    cmd_str = pdu_map["status_cmd"]
+    rcode, result = getstatusoutput(cmd_str)
+    if rcode:
+        msg = "Result of power status operation on board %s = %d" % (board_map["name"], rcode)
+        msg += "command output='%s'" % result
+        return ("FAIL", msg)
+
+    # FIXTHIS - translate result here, if needed
+    # need to determine required output format
+
+    return ("OK", result)
+
+# show the web ui for boards on this machine
+def show_boards(req):
+    req.html.append("<H1>Boards</h1>")
+    boards = get_object_list(req, "board")
+
+    # show a table of attributes
+    req.html.append('<table class="board_table" border="1" style="border-collapse: collapse; padding: 5px" >\n<tr>\n')
+    req.html.append("  <th>Picture</th><th>Name</th><th>Description</th><th>Data and Actions</th>\n</tr>\n")
+    for board in boards:
+        req.html.append("<tr>\n")
+        bmap = get_object_map(req, "board", board)
+        req.html.append('  <td valign="middle" style="padding: 5px"><i>No picture</i></td>\n')
+        req.html.append('  <td valign="top" align="center" style="padding: 5px"><h3>%(name)s</h3>(in %(host)s)</td>\n' % bmap)
+        req.html.append('  <td valign="top" style="padding: 5px">%(description)s</td>\n' % bmap)
+        # FIXTHIS - what to show here:
+        # status, action for on/off/reboot
+        # list of connected resources
+        # reservations
+        req.html.append('  <td style="padding: 10px">')
+        show_board_info(req, bmap)
+        req.html.append("</td>\n")
+        req.html.append("</tr>\n")
+
+    req.html.append("</table>")
+    req.show_footer()
+
+# show the web ui for objects on the server
+# this is the main human interface to the server
 def do_show(req):
     req.show_header("Lab Control objects")
     #log_this("in do_show, req.page_name='%s'\n" % req.page_name)
     #req.html.append("req.page_name='%s' <br><br>" % req.page_name)
 
     if req.page_name not in ["boards", "resources", "requests", "logs", "main"]:
+        # FIXTHIS - check for object name here, and show individual object
+        #   status and control interface
+        # it should be in req.obj_path
         title = "Error - unknown object type '%s'" % req.page_name
         req.add_to_message(title)
     else:
         if req.page_name=="boards":
-            req.html.append("<H1>List of boards</h1>")
-            req.html.append(file_list_html(req, "data", "boards", ".json"))
+            show_boards(req)
         elif req.page_name == "resources":
             req.html.append("<H1>List of resources</h1>")
             req.html.append(file_list_html(req, "data", "resources", ".json"))
@@ -669,6 +773,50 @@ Here are links to the different Lab Control objects:<br>
 <hr>
 """ % req.config )
 
+    req.html.append("""<a href="%(url_base)s/raw">Show raw objects</a><br>\n""" % req.config)
+    req.html.append("""<a href="%(url_base)s">Back to home page</a>""" % req.config)
+
+    req.show_footer()
+
+# show raw objects
+#  if page_name is "main", show a list of different object types
+def do_raw(req):
+    req.show_header("Lab Control Raw objects")
+    log_this("in do_raw, req.page_name='%s'\n" % req.page_name)
+    req.html.append("req.page_name='%s' <br><br>" % req.page_name)
+
+    if req.page_name not in ["boards", "resources", "requests", "logs", "main"]:
+        title = "Error - unknown object type '%s'" % req.page_name
+        req.add_to_message(title)
+    else:
+        if req.page_name=="boards":
+            req.html.append("<H1>List of boards</h1>")
+            req.html.append(file_list_html(req, "data", "boards", ".json"))
+        elif req.page_name == "resources":
+            req.html.append("<H1>List of resources</h1>")
+            req.html.append(file_list_html(req, "data", "resources", ".json"))
+        elif req.page_name == "requests":
+            req.html.append("<H1>Table of requests</H1>")
+            show_request_table(req)
+        elif req.page_name == "logs":
+            req.html.append("<H1>Table of logs</H1>")
+            req.html.append(file_list_html(req, "files", "logs", ".txt"))
+
+    if req.page_name != "main":
+        req.html.append("<br><hr>")
+
+    req.html.append("<H1>Lab Control raw objects on this server</h1>")
+    req.html.append("""
+Here are links to the different Lab Control objects:<br>
+<ul>
+<li><a href="%(url_base)s/raw/boards">Boards</a></li>
+<li><a href="%(url_base)s/raw/resources">Resources</a></li>
+<li><a href="%(url_base)s/raw/requests">Requests</a></li>
+<li><a href="%(url_base)s/raw/logs">Logs</a></li>
+</ul>
+<hr>
+""" % req.config )
+
     req.html.append("""<a href="%(url_base)s">Back to home page</a>""" % req.config)
 
     req.show_footer()
@@ -688,7 +836,6 @@ def get_object_list(req, obj_type):
     obj_list.sort()
     return obj_list
 
-
 # supported api actions by path:
 # devices = list boards
 # devices/{board} = show board data (json file data)
@@ -696,7 +843,6 @@ def get_object_list(req, obj_type):
 # devices/{board}/reboot = reboot board
 # resources = list resources
 # resources/{resource} = show resource data (json file data)
-
 
 def return_api_object_list(req, obj_type):
     obj_list = get_object_list(req, obj_type)
@@ -766,54 +912,45 @@ def return_api_object_data(req, obj_type, obj_name):
     req.send_response("OK", data)
 
 # execute a resource command
+# returns a tuple of (result, string)
 def exec_command(req, board_map, resource_map, res_cmd):
     # lookup command to execute in resource_map
     res_cmd_str = res_cmd + "_cmd"
     if res_cmd_str not in resource_map:
         msg = "Resource '%s' does not have %s attribute, cannot execute" % (resource["name"], res_cmd_str)
-        req.send_response("FAIL", msg)
-        return
+        return ("FAIL", msg)
 
     cmd_str = resource_map[res_cmd_str]
 
     # FIXTHIS - do substitution of variables from board_map and resource_map
-    # this allows a command to refer to a variable defined in the board
+    # into the cmd_str, like the following:
+    # if has_fmt(cmd_str):
+    #   cmd_str = cmd_str % board_map
+    #
+    # This allows a command to refer to a variable defined in the board
     # or resource data
 
     rcode, result = getstatusoutput(cmd_str)
     if rcode:
         msg = "Result of %s operation on resource %s = %d" % (res_cmd, resource["name"], rcode)
         msg += "command output='%s'" % result
-        req.send_response("FAIL", msg)
-        return
+        return ("FAIL", msg)
 
-    req.send_response("OK", "")
+    return ("OK", result)
 
+# execute a resource command
+def return_exec_command(req, board_map, resource_map, res_cmd):
+    (result, msg) = exec_command(req, board_map, resource_map, res_cmd)
+    req.send_response(result, msg)
 
 def return_power_status(req, board_map, pdu_map):
-    # lookup command to execute in resource_map
-    if "status_cmd" not in pdu_map:
-        msg = "Resource '%s' does not have status_cmd attribute, cannot execute" % (pdu_map["name"])
-        req.send_response("FAIL", msg)
-        return
-
-    cmd_str = pdu_map["status_cmd"]
-    rcode, result = getstatusoutput(cmd_str)
-    if rcode:
-        msg = "Result of power status operation on board %s = %d" % (board_map["name"], rcode)
-        msg += "command output='%s'" % result
-        req.send_response("FAIL", msg)
-        return
-
-    # FIXTHIS - translate result here, if needed
-    # need to determine required output format
-
-    req.send_response("OK", result)
-
+    (result, msg) = get_power_status(req, board_map, pdu_map)
+    req.send_response(result, msg)
 
 # rest is a list of the rest of the path
 def return_api_board_action(req, board, action, rest):
-    if board not in get_object_list(req, "board"):
+    boards = get_oject_list(req, "board")
+    if board not in boards:
         msg = "Could not find board '%s' registered with server" % board
         req.send_response("FAIL", msg)
         return
@@ -834,7 +971,7 @@ def return_api_board_action(req, board, action, rest):
             return_power_status(req, board_map, pdu_map)
             return
         elif rest[0] in ["on", "off", "reboot"]:
-            exec_command(req, board_map, pdu_map, rest[0])
+            return_exec_command(req, board_map, pdu_map, rest[0])
             return
         else:
             msg = "power action '%s' not supported" % rest[0]
@@ -913,19 +1050,32 @@ def handle_request(environ, req):
     req.action = action
 
     # get page name (last element of path)
-    req_path = environ.get("PATH_INFO", "%s/main" % req.config.url_base)
-    page_name = os.path.basename(req_path)
-    if page_name == os.path.basename(req.config.url_base):
+    path_info = environ.get("PATH_INFO", "%s/main" % req.config.url_base)
+    if path_info.startswith(req.config.url_base):
+        obj_path = path_info[len(req.config.url_base):]
+    else:
+        obj_path = path_info
+
+    page_name = os.path.basename(obj_path)
+    if not page_name:
         page_name = "main"
     req.set_page_name(page_name)
 
-    #req.add_to_message("page_name=%s" % page_name)
+    req.add_to_message("PATH_INFO=%s" % environ.get("PATH_INFO"))
+    req.add_to_message("path_info=%s" % path_info)
+    req.add_to_message("obj_path=%s" % obj_path)
+    req.add_to_message("page_name=%s" % page_name)
 
     # see if /api is in path
-    if "api" in req_path.split("/"):
+    if obj_path.startswith("/api"):
         action = "api"
+        req.api_path = obj_path[4:]
 
-    #req.add_to_message("api=%s" % api)
+    if obj_path.startswith("/raw"):
+        action = "raw"
+        req.obj_path = obj_path[4:]
+
+    req.add_to_message("action=%s" % action)
 
     # NOTE: uncomment this when you get a 500 error
     #req.show_header('Debug')
@@ -935,7 +1085,7 @@ def handle_request(environ, req):
     #req.add_to_message("in main request loop: action='%s'<br>" % action)
 
     # perform action
-    action_list = ["show", "api",
+    action_list = ["show", "api", "raw",
             "add_board", "add_resource", "put_request",
             "query_objects",
             "get_board", "get_resource", "get_request",
