@@ -56,23 +56,22 @@ that was connected to the board.
 Server-to-resource interface
 ----------------------------
 The inteface between the server (lcserver.py) and local board
-management tools is via command line.  A resource supports an action by
-specifying a "{action}_cmd" attribute, which the server calls to perform
-an action.  The output from the command is either interpreted by
-server or returned directly to the client.
+management tools is via command line.  A resource supports an action
+by specifying a "{action}_cmd" attribute, which the server calls to
+perform an action.  The output from the command is either interpreted
+by the server or returned directly to the client.
 
-This means that local commands need to have output that
-matches what is required by the REST protocol, in the case
-where the data is returned directly by the server.
+This means that local commands need to have output that matches what
+is required by the REST protocol, in the case where the data is
+returned directly by the server.
+
+In Tim Bird's Fuego lab, labcontrol resource files have attributes that
+specify to call the 'ttc' command, which is a tool used in Sony's labs
+to control boards and lab hardware.  This is shown in the sample
+resource files that are included with the labcontrol distribution.
 
 Future work
 ===========
-In the future, it is planned to have the labcontrol server
-support a python plugin API, to allow it to support lots
-of different resource types.
-
-    I might want to stage these differently, but for now I'll just
-    include board and resource files from my lab.  These are
-    works in progress.  Right now, the resources are integrated
-    with 'ttc', but they could also call out to other commands.
-
+In the future, it is planned to have the labcontrol server support a
+python plugin API, to allow it to support lots of different resource
+types.
