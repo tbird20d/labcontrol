@@ -1,0 +1,7 @@
+{
+    "board": "bbb",
+    "description": "BeagleBone Black in Tim's lab",
+    "host": "timslab",
+    "name": "bbb",
+    "power-controller": "sdb-042"
+}

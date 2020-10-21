@@ -1,0 +1,11 @@
+{
+    "name": "netperf-server",
+    "resource": "netperf-server",
+    "host": "timslab",
+    "reservation": "none",
+    "type": "network-server",
+    "start_cmd": "sudo service netperf start",
+    "stop_cmd": "sudo service netperf stop",
+    "output_stream": "none",
+    "log": "/var/log/netserver.debug_%(pid)s"
+}

@@ -1,0 +1,6 @@
+{
+    "board": "min1",
+    "description": "MinnowBoard in Tim's lab, that I got from Yocto Project",
+    "host": "timslab",
+    "name": "min1"
+}
