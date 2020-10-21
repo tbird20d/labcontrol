@@ -76,6 +76,9 @@ if not os.path.exists(base_dir):
 if not os.path.exists(base_dir):
     base_dir = "/home/tbird/work/labcontrol/lc-data"
 
+RSLT_FAIL="Fail"
+RSLT_OK="Success"
+
 # this is used for debugging only
 def log_this(msg):
     with open(base_dir+"/lcserver.log" ,"a") as f:
@@ -178,7 +181,7 @@ class req_class:
         self.html.append("Content-type: text/plain\n\n%s\n" % result)
         self.html.append(data)
 
-    # API responses return json data
+    # API responses: return python dictionary as json data
     def send_api_response(self, result, data):
         import json
 
@@ -197,7 +200,6 @@ class req_class:
 
         self.html.append("Content-type: text/plain\n\n")
         self.html.append(json_data)
-
 
 
 # end of req_class
@@ -699,14 +701,12 @@ def show_board_info(req, bmap):
 
     req.html.append("<h3>Actions</h3>\n<ul>\n")
     if pc:
-        reboot_link = req.config.url_base + "?board=%s&action=reboot" % (bmap["name"])
+        reboot_link = req.config.url_base + "/api/devices/%s/power/reboot" % (bmap["name"])
         req.html.append("""
 <form method="get" action=%s>
-<input type="hidden" name="board" value="%s">
-<input type="hidden" name="action" value="reboot">
 <input type="submit" name="button" value="Reboot">
 </form>
-""" % (bmap["name"], reboot_link))
+""" % reboot_link)
     req.html.append("</ul>")
 
 # returns (OK|FAIL, msg)
@@ -867,7 +867,7 @@ def get_object_list(req, obj_type):
 # devices = list boards
 # devices/{board} = show board data (json file data)
 # devices/{board}/status = show board status
-# devices/{board}/reboot = reboot board
+# devices/{board}/power/reboot = reboot board
 # resources = list resources
 # resources/{resource} = show resource data (json file data)
 
@@ -946,7 +946,7 @@ def exec_command(req, board_map, resource_map, res_cmd):
     res_cmd_str = res_cmd + "_cmd"
     if res_cmd_str not in resource_map:
         msg = "Resource '%s' does not have %s attribute, cannot execute" % (resource["name"], res_cmd_str)
-        return ("FAIL", msg)
+        return (RSLT_FAIL, msg)
 
     cmd_str = resource_map[res_cmd_str]
 
@@ -962,14 +962,15 @@ def exec_command(req, board_map, resource_map, res_cmd):
     if rcode:
         msg = "Result of %s operation on resource %s = %d" % (res_cmd, resource["name"], rcode)
         msg += "command output='%s'" % result
-        return ("FAIL", msg)
+        return (RSLT_FAIL, msg)
 
-    return ("OK", result)
+    return (RSLT_OK, result)
 
 # execute a resource command
 def return_exec_command(req, board_map, resource_map, res_cmd):
     (result, msg) = exec_command(req, board_map, resource_map, res_cmd)
-    req.send_response(result, msg)
+    resp_dict = {"message": msg}
+    req.send_api_response(result, resp_dict)
 
 def return_power_status(req, board_map, pdu_map):
     (result, msg) = get_power_status(req, board_map, pdu_map)
@@ -977,7 +978,7 @@ def return_power_status(req, board_map, pdu_map):
 
 # rest is a list of the rest of the path
 def return_api_board_action(req, board, action, rest):
-    boards = get_oject_list(req, "board")
+    boards = get_object_list(req, "board")
     if board not in boards:
         msg = "Could not find board '%s' registered with server" % board
         req.send_response("FAIL", msg)
