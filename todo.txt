@@ -3,7 +3,16 @@ To Do file for labcontrol:
 (See NOTES file for how to restart work)
 
 = to do =
- - switch lc to use api paths (?)
+ - separate web and raw objects pages
+   - top level view is for "web ui" views
+     do_show
+     do_raw
+     do_api
+   - raw view is json file object views (mostly for debugging)
+
+ - switch lc to use api paths and REST API (?)
+   - lc list-boards - uses api paths and request module
+
  - support reservations
  - support users
  - allow users to connect resources to boards
