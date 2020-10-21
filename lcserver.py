@@ -178,8 +178,36 @@ class req_class:
         self.html.append("Content-type: text/plain\n\n%s\n" % result)
         self.html.append(data)
 
+    # API responses return json data
+    def send_api_response(self, result, data):
+        import json
+
+        data["result"] = result
+        json_data = json.dumps(data, sort_keys=True, indent=4,
+            separators=(',', ': '))
+
+        self.html.append("Content-type: text/plain\n\n")
+        self.html.append(json_data)
+
+    def send_api_list_response(self, data):
+        import json
+
+        json_data = json.dumps(data, sort_keys=True, indent=4,
+            separators=(',', ': '))
+
+        self.html.append("Content-type: text/plain\n\n")
+        self.html.append(json_data)
+
+
+
 # end of req_class
 #######################
+
+# response objects are dictionaries with the following schema:
+# { "result" : "success",
+#    "data" : <command-specific> }
+# { "result" : "fail",
+#    "message": "reason for failure" }
 
 def show_env(req, env, full=0):
     env_keys = env.keys()
@@ -651,7 +679,6 @@ def show_board_info(req, bmap):
         req.html.append("<li><i>No connected resources found!</i></li>\n")
     req.html.append("</ul>\n")
 
-
     req.html.append("<h3>Status</h3>\n<ul>")
 
     reservation = bmap.get("reservation", "None")
@@ -682,7 +709,7 @@ def show_board_info(req, bmap):
 """ % (bmap["name"], reboot_link))
     req.html.append("</ul>")
 
-# returns (result, msg)
+# returns (OK|FAIL, msg)
 def get_power_status(req, bmap):
     pdu_map = get_connected_resource(req, bmap, "power-controller")
     if not pdu_map:
@@ -695,16 +722,16 @@ def get_power_status(req, bmap):
         return ("FAIL", msg)
 
     cmd_str = pdu_map["status_cmd"]
-    rcode, result = getstatusoutput(cmd_str)
+    rcode, output = getstatusoutput(cmd_str)
     if rcode:
         msg = "Result of power status operation on board %s = %d" % (board_map["name"], rcode)
-        msg += "command output='%s'" % result
+        msg += "command output='%s'" % output
         return ("FAIL", msg)
 
     # FIXTHIS - translate result here, if needed
     # need to determine required output format
 
-    return ("OK", result)
+    return ("OK", output)
 
 # show the web ui for boards on this machine
 def show_boards(req):
@@ -847,11 +874,12 @@ def get_object_list(req, obj_type):
 def return_api_object_list(req, obj_type):
     obj_list = get_object_list(req, obj_type)
 
-    msg = ""
+    result_obj_list = []
     for obj_name in obj_list:
-        msg += obj_name + "\n"
+        result_obj_list.append( {"hostname": obj_name} )
 
-    req.send_response("OK", msg)
+    # this is wrong, but make it match ebf for now
+    req.send_api_list_response(result_obj_list)
 
 def get_object_data(req, obj_type, obj_name):
     filename = obj_type + "-" + obj_name + ".json"
@@ -980,6 +1008,15 @@ def return_api_board_action(req, board, action, rest):
 
     msg = "action '%s' not supported (rest='%s')" % (action, rest)
     req.send_response("FAIL", msg)
+
+# api paths are:
+#  lc/ebf command -> api path
+# list boards, list devices -> api/v0.2/devices/"
+# mydevices -> api/v0.2/devices/mine"
+# {board} allocate -> api/v0.2/devices/{board}/assign
+# {board} release -> api/v0.2/devices/{board}/release"
+# {board} release force -> api/v0.2/devices/{board}/release"
+# {board} status -> api/v0.2/devices/{board}
 
 def do_api(req):
     # determine api operation from path
