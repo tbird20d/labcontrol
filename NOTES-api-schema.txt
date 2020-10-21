@@ -36,6 +36,76 @@ list devices                                           ...] }
                                                 { "SupportedCommands": [][] }
 
 ----------------------------------------------------------------------------
-{board} power?   api/v0.2/devices/{board}/power | "status": "ON" | "OFF" | Devices $DEVICE is Powered $STATUS
+{board} power status   api/v0.2/devices/{board}/power | "status": "ON" | "OFF" | Devices $DEVICE is Powered $STATUS
+---or is it?-------------------------------------------------------------------------
+{board} power status   api/v0.2/devices/{board}/power/status | "status": "ON" | "OFF" | Devices $DEVICE is Powered $STATUS
 ----------------------------------------------------------------------------
+{board} power reboot   api/v0.2/devices/{board}/power/reboot | <nothing more> | Devices $DEVICE is Powered reboot (??)
+----------------------------------------------------------------------------
+{board} power on   api/v0.2/devices/{board}/power/on | <nothing more> | Devices $DEVICE is Powered on
+----------------------------------------------------------------------------
+{board} power off   api/v0.2/devices/{board}/power/off | <nothing more> | Devices $DEVICE is Powered off
 
+
+EBF curl commands:
+
+Here are commands from ebf:
+
+Authentication:
+ POST api/v0.2/token/  --header 'Content-Type: application/json' --data-raw '{"username":"'"$USER_NAME"'" , "password":"'"$PASSWORD"'"}
+
+Boards and reservations:
+ GET  api/v0.2/devices/
+ GET  api/v0.2/devices/mine/
+ GET  api/v0.2/devices/$DEVICE
+ GET  api/v0.2/devices/$DEVICE/assign
+ GET  api/v0.2/devices/$DEVICE/release
+ GET  api/v0.2/devices/$DEVICE/release/force
+
+Power:
+ GET  api/v0.2/devices/$DEVICE/power
+ PUT  api/v0.2/devices/$DEVICE/power/$OPTION3
+
+ GET  api/v0.2/devices/$DEVICE/hotplug/$OPTION3/
+ PUT  api/v0.2/devices/$DEVICE/hotplug/$OPTION3/$OPTION4/
+ GET  api/v0.2/devices/$DEVICE/portfw/$OPTION4/
+
+Zombie control (port forwarding):
+---------------------------------
+ POST api/v0.2/zombies/$ZOMBIE_NAME/portforward/nat/"  '' --data-raw '{ "device_ip":"'"$DEVICE_IP"'", "dut_port":"'"$DUT_PORT"'", "zombie_port":"'"$ZOMBIE_PORT"'", "pcol":"'"$PROTOCOL"'" }')
+ POST api/v0.2/devices/$DEVICE/portfw/ssh/"  '' --data-raw '{ "dut_ip":"'"$DEVICE_IP"'", "username":"'"$USERNAME"'", "dut_pw":"'"$PASSWORD"'", "dut_port":"'"$DUT_PORT"'", "zombie_port":"'"$ZOMBIE_PORT"'" }')
+ GET api/v0.2/devices/$DEVICE/portfw/$OPTION4/"  '')
+ DELERL/api/v0.2/devices/$DEVICE/portfw/$OPTION4/"  '' --data-raw '{ "device_ip":"'"$DEVICE_IP"'", "dut_port":"'"$DUT_PORT"'", "zombie_port":"'"$ZOMBIE_PORT"'", "pcol":"'"$PROTOCOL"'" }')
+ DELERL/api/v0.2/zombies/$ZOMBIE_NAME/portforward/ssh/?ports=$ZOMBIE_PORT/"  '')
+
+Execute and file transfers:
+---------------------------
+ GET api/v0.2/devices/$DEVICE/run/serial/"  '' --data-raw '{ "command":"'"$DEVICE_COMMAND"'" }')
+ GET api/v0.2/devices/$DEVICE/run/ssh/"  '' --data-raw '{ "command": "'"$DEVICE_COMMAND"'" }')
+
+ GET api/v0.2/devices/$DEVICE/download/serial/$FILE_PATH/ --output ${FILE_PATH##*/})
+ POST api/v0.2/devices/$DEVICE/upload/serial/ --form 'file=@'$FILE_PATH'' )
+ GET  api/v0.2/devices/$DEVICE/downld/ssh?path=$SRC_FILE_PATH --output ${DST_FILE_PATH})
+
+ POST api/v0.2/devices/$DEVICE/upld/ssh/ --form 'file=@'$SRC_FILE_PATH'' --form 'path='$DST_FILE_PATH'' )
+
+GPIO:
+-----
+ GET  api/v0.2/devices/$DEVICE/gpio/$COMMAND/$GPIO_PATTERN/$GPIO_DATA
+
+Console:
+--------
+ GET  api/v0.2/devices/$DEVICE/console/serial/isactive/
+ GET  api/v0.2/devices/$DEVICE/console/serial/restart/
+ GET  api/v0.2/devices/$DEVICE/console/serial/isactive/
+
+???:
+----
+ GET  api/v0.2/devices/$DEVICE/labcontrollers/
+
+
+LAVA REST API:
+--------------
+The LAVA server is apparently based on DJango.
+This commit is worth examining:
+https://git.lavasoftware.org/lava/lava/-/commit/8e38d322e70aa34ad648cafb7d55972d61c3b566
