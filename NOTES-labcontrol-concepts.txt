@@ -1,0 +1,78 @@
+Here is some information about labcontrol concepts.
+
+Overview
+========
+Labcontrol consists of a web server and command line tool for managing
+a set of boards in a board farm.
+
+The central abstraction of labcontrol is that a server manages boards
+and resources (two different object types) in a lab. Currently, the
+server executes actions in the lab using command line utilities on the
+server side.  (In the future other backend interfaces may be
+supported).
+
+A client can access the server using either the command line tool,
+called 'lc' or using a web-based REST API.  A client may either be a
+human or an automated process (the test framework or a test).
+
+The goal is to create a set of command line arguments and REST APIs
+that are the same no matter what objects are being managed in the lab.
+This will allow test frameworks and tests to be written in a manner
+that is independent of the details of lab hardware, software and
+configuration.
+
+Finally, humans can also access a Web-based user interface to interact
+with the object managed by the server.
+
+
+Labcontrol Objects
+------------------
+A labcontrol object can be a board, represented by a board file on
+the server, or a resource, represented by a resource file on the
+server.
+
+A 'board' is the primary object that has operations performed on it
+and is usually at one of two endpoints that are involved in some
+action.  A 'resource' is a piece of hardware or an application or
+process in the lab that is used in conjunction with a board.  A lab
+administrator describes the configuration of lab hardware
+(connections, ports, wiring, etc.), by configuring labcontrol with
+connections between the board and multiple resources.
+
+For example, a board might be connected to a power controller, which
+can turn a board on or off (provide power or not).  The power
+controller would be a resource in the lab, and the specific power
+controller would be registered with labcontrol, and the board would
+have a "connection" to that resource.
+
+Labcontrol takes commands that are issued to a board, and converts
+them into an appropriate action on a resource connected to the board,
+where that is applicable.
+
+For example, when a user requests that the board turn on, labcontrol
+would convert that request into a operation on the power controller
+that was connected to the board.
+
+Server-to-resource interface
+----------------------------
+The inteface between the server (lcserver.py) and local board
+management tools is via command line.  A resource supports an action by
+specifying a "{action}_cmd" attribute, which the server calls to perform
+an action.  The output from the command is either interpreted by
+server or returned directly to the client.
+
+This means that local commands need to have output that
+matches what is required by the REST protocol, in the case
+where the data is returned directly by the server.
+
+Future work
+===========
+In the future, it is planned to have the labcontrol server
+support a python plugin API, to allow it to support lots
+of different resource types.
+
+    I might want to stage these differently, but for now I'll just
+    include board and resource files from my lab.  These are
+    works in progress.  Right now, the resources are integrated
+    with 'ttc', but they could also call out to other commands.
+

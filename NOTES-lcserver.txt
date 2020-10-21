@@ -5,14 +5,29 @@ point for  objects.  Current objects supported are:
   * boards and board management processes, hardware and services
 
 == programatic interface ==
+[*** Work in Progress ***]
+Note: This work started as a clone of fserver, which uses a non-json
+web API.  Converting this over to the BFC REST API is in progress.
+Please pardon the confusion while this is under development.
+
 The server handles requests from lc to put, update, query, get, and remove
 objects, via it's web API.
+
+The server also handles a REST api which can be used to perform operations
+on boards and resources in the farm.
+
+[TEMPORARY]
+Eventually, the intent is to migrate the server to use only a single
+json-based API, but right now it supports both a text and a json
+API (for different operations).
 
 == user interface ==
 The server handles showing a user interface to examine the objects on
 the server.
 
 It can show lists of objects, and the content of individual objects.
+
+Work has just started on the conversion from text API to REST API.
 
 Files:
  lcserver.py - the LabControl server
@@ -28,4 +43,5 @@ Data Files:
   * resources - resource-{name}.json files
   * requests - request-{name-timestamp}.json files
   * logs - log-{name-timestamp}.txt files
+
 

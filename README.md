@@ -15,11 +15,11 @@ as well as web-based object storage for the following lab objects
  * Resources
 
 In the future, additional objects may be stored, including:
- * user objects
+ * User objects
 
 Starting in foreground mode
 ===========================
-To start fserver in foreground mode, cd to the top-level directory,
+To start lcserver in foreground mode, cd to the top-level directory,
 and run the script: start_server.
 
 You may specify a TCP/IP port address for the server to use, on the
@@ -35,7 +35,7 @@ as the server processes network requests.
 To stop the server, use CTRL-C (possibly a few times), to interrupt
 the running server.
 
-To start fserver in background mode, use the script: start_local_bg_server.
+To start lcserver in background mode, use the script: start_local_bg_server.
 You may specify the TCP/IP port address fro the server to use, on the
 command line, like so:
  $ start_local_bg_server [<port>]
@@ -51,20 +51,24 @@ Accessing the server
 To access the server using a web browser, go to:
  http://<ip address>:<port>/lcserver.py
 
-To access the server using the command line, use:
- * lc 
- * ftc list-requests
- * ftc run-request
- * ftc put-run
- * ftc put-binary-package
- * ftc list-boards -r
+To access the server using the command line, use the 'lc' command:
+ * lc help - to get command line help
+ * lc help <command> - to get help for an 'lc' command
+ * lc list-boards - to list the boards managed by the server
+ * lc list-resources - to list resources managed by the server
+ * lc {board} power reboot
+ * lc {board} power on
+ * lc {board} power off
+ * lc {board} power status
+
+FIXTHIS - need to make these match 'ebf'
 
 Configuring 'lc' to access the server
 ======================================
 To access the server using the lc command, you need to configure
 it with the address of the server.
 
-Put the following lines in the /etc/labcontrol.conf
+Put the following lines in the /etc/lc.conf
 
 server=localhost:8091/
 
