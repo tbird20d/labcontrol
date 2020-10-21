@@ -1,19 +1,17 @@
 #!/usr/bin/python
-#
 # vim: set ts=4 sw=4 et :
 #
 # lc - 'lab control' - a tool for interacting with the LabControl server
 #  and for accessing lab information and controlling lab resources,
 #  for test programs
 #
-# some material, and lots of style, copied from ftc
+# Some material, and lots of style, copied from ftc
 #
 # Copyright 2020 Sony Corporation
 #
-# Need to decide on a license.  this code is all original, so I can
-# choose what I want.
-#
 # Author: Tim Bird  <tim.bird (at) sony.com>
+#
+# SPDX-License-Identifier:  MIT
 #
 # To Do:
 #   create set of commands (these will be similar to ttc verbs)
@@ -40,14 +38,10 @@ shutil = None
 tempfile = None
 glob = None
 
-# import jenkins later
-#import jenkins
-jenkins = None
-
 # MAJOR, MINOR, REVISION, extra_revision
 # extra_revision, if non-empty, should start with a dash
 # (e.g. "-next", "-rc1")
-VERSION = (0, 6, 0, "")
+VERSION = (0, 1, 0, "")
 
 # define these as globals
 log = None
@@ -184,21 +178,6 @@ Put a request on the server to perform the indicated operation.
 The request_id is a request identifier on the server (which can be queried
 for with 'lc list-requests')."""),
 
-"wait-for": ("Wait for a condition to be true.",
-    """Usage: lc wait-for [-i <interval>] [-t <timeout>] <command>
-
-The command is run periodically until it returns 0.  By default,
-the interval between executing the command is 5 seconds.
-Use -i to specify a different interval, and -t to specify a
-maximum time to wait.  Both are expressed in seconds.
-
-   ex: lc wait-for -i 2 -t 100 "test -f /tmp/outfile"
-
-This will check every two seconds to see if /tmp/outfile exists,
-waiting no longer than 100 seconds total. The exit code from
-'lc' is the exit code of the last invocation of the
-command (0 on success)."""),
-
 "reserve": ("Reserve a board or resource for use.",
     """Usage: lc reserve [-f] [board] <name>
 
@@ -311,6 +290,7 @@ class config_class:
         self.server = conf_map.get("server", "localhost:8000")
         self.default_board = conf_map.get("default_board", "")
         self.SERVER_URL_BASE = "http://%s/lcserver.py/?action=" % self.server
+        self.API_URL_BASE = "http://%s/lcserver.py/" % self.server
 
     # fuego configuration file syntax:
     # ------------------------
@@ -626,66 +606,6 @@ def get_timeout_arg(options, dest_dict):
         dest_dict["timeout"] = timeout
     return timeout
 
-def do_add_nodes(conf, options):
-    global server
-    global jenkins
-
-    if '-f' in options:
-        force = True
-        options.remove('-f')
-    else:
-        force = False
-
-    board_names, options = get_board_arg("add-node", conf, options, "!,am")
-
-    params = { 'command' : 'java -jar /fuego-core/slave.jar'}
-    for board_name in board_names:
-        nodes = [node['name'] for node in server.get_nodes()]
-        if board_name in nodes:
-            if force:
-                server.delete_node(board_name)
-            else:
-                raise Exception('Node \'%s\' already exists' % board_name)
-
-        server.create_node(
-            board_name,
-            numExecutors = 1,
-            launcher = jenkins.LAUNCHER_COMMAND,
-            launcher_params = params
-        )
-        # bug?: it seems enable_node requires two calls
-        server.enable_node(board_name)
-        server.enable_node(board_name)
-    sys.exit(0)
-
-
-def do_rm_nodes(conf, options):
-    global server
-
-    installed_nodes = [node['name'] for node in server.get_nodes()]
-    dprint("installed nodes=%s" % installed_nodes)
-    if not options:
-        # if no args, remove all installed nodes!
-        confirm = raw_input("Really remove ALL nodes? (y/n) ")
-        if not confirm[0] in "Yy":
-            sys.exit(1)
-        options = installed_nodes
-    else:
-        for node in options:
-            if node not in installed_nodes:
-                raise Exception('Node \'%s\' not found.' % node)
-
-    for node in options:
-        installed_nodes = [n['name'] for n in server.get_nodes()]
-        if node not in installed_nodes:
-            # in case the same node is repeated in options
-            continue
-        if node == 'master':
-            # the master node is special in jenkins
-            continue
-        server.delete_node(node)
-    sys.exit(0)
-
 # shows a list title, if not quiet, and
 # returns an indent to use for the list
 def show_list_title(title):
@@ -841,6 +761,21 @@ def get_objects_from_server(conf, obj_type, options):
             obj_list.append(obj)
     return obj_list
 
+# returns a list of board names
+def get_boards_via_api(conf, options):
+    url = conf.API_URL_BASE+"api/devices"
+
+    resp = requests.get(url)
+    if resp.status_code != 200:
+        error_out("Cannot read boards from server")
+
+    obj_list = resp.json()
+    board_list = []
+    for obj in obj_list:
+        board_list.append(obj["hostname"])
+
+    return board_list
+
 
 def get_requests_from_server(conf, options):
     url = conf.SERVER_URL_BASE+"query_requests"
@@ -899,9 +834,38 @@ def do_list_objects(conf, obj_type, options):
 
     sys.exit(0)
 
+def do_list_objects_via_api(conf, obj_type, options):
+    global quiet
+
+    obj_list = get_objects_from_server(conf, obj_type, options)
+
+    indent = show_list_title("%ss on the LabControl server:" % obj_type.title())
+    if obj_list:
+        for obj in obj_list:
+            print indent + obj
+    else:
+        if options:
+            extra_msg = " that match the specified criteria"
+        else:
+            extra_msg = ""
+        if not quiet:
+            print("No %ss found%s." % (obj_type, extra_msg))
+
+    sys.exit(0)
 
 def do_list_boards(conf, options):
-    do_list_objects(conf, "board", options)
+    indent = show_list_title("Boards on the LabControl server:")
+
+    board_list = get_boards_via_api(conf, options)
+
+    if board_list:
+        for board in board_list:
+            print indent + board
+    else:
+        if not quiet:
+            print("No boards found.")
+
+    sys.exit(0)
 
 def do_list_resources(conf, options):
     do_list_objects(conf, "resource", options)
@@ -1018,64 +982,6 @@ def do_query_request(conf, options):
         for attr in attrs:
             print "%13s : %s" % (attr, req[attr])
 
-def do_get_run(conf, options):
-    output_dir = os.getcwd()
-    if "-o" in options:
-        output_dir = options[options.index("-o")+1]
-        options.remove(output_dir)
-        options.remove("-o")
-        if not os.path.isdir(output_dir):
-            error_out("Invalid output directory '%s'" % output_dir)
-
-    if not options:
-        error_out("Missing run-id")
-
-    run_id = options[0]
-    del options[0]
-
-    server_url = conf.SERVER_URL_BASE+"get_run_url"
-    data = { "run_id": run_id }
-    resp = requests.post(server_url, data=data)
-    result, content = resp.text.split('\n', 1)
-    if result != "OK":
-        error_out("Can't read run '%s' from server\nServer returned message: %s" % (run_id, content))
-
-    run_url = content
-    if not run_url.startswith("http"):
-        # pre-pend the first parts of the server url base
-        from urlparse import urlparse
-        parts = urlparse(conf.SERVER_URL_BASE)
-        run_url = "%s://%s%s" % (parts.scheme, parts.netloc, run_url)
-
-    out_filename = run_url.split("/")[-1]
-    import urllib
-    out_filepath = output_dir + os.sep + out_filename
-    urllib.urlretrieve(run_url, out_filepath)
-    print "Run was downloaded successfully, and is at: %s" % out_filepath
-    return
-
-class data_class:
-    def __init__(self):
-        self.data = {}
-
-    def __getitem__(self, key):
-        # return value for key
-        if self.data.has_key(key):
-            item = self.data[key]
-        elif hasattr(self, key):
-            item = getattr(self, key)
-        else:
-            if self.data.has_key("default"):
-                item = self.data["default"]
-            else:
-                item = "missing data value for key '%s'" % key
-
-        if callable(item):
-            return item(self)
-        else:
-            return item
-
-
 def make_temp_file(data):
     try:
         fd = tempfile.NamedTemporaryFile(prefix="lc-", delete=False)
@@ -1189,10 +1095,7 @@ def do_put_request(conf, options):
             "host": host,
             "board": board,
             "reboot": reboot,
-            "rebuild": "False",
-            "precleanup": "True",
-            "postcleanup": "True",
-            "spec": spec,
+            "variant": variant,
             "requestor": conf.user + "@" + conf.host,
             "run_id": "unknown",
             "start_time": "unknown",
@@ -1818,9 +1721,6 @@ def main():
 
     if command == "list":
         do_list(conf, options)
-
-    if command == "wait-for":
-        do_wait_for(options)
 
     if command == "put-request":
         do_put_request(conf, options)
