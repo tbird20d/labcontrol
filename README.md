@@ -24,7 +24,10 @@ and run the script: start_server.
 
 You may specify a TCP/IP port address for the server to use, on the
 command line, like so:
+
+```
  $ start_server 8001
+```
 
 By default, port 8000 is used.
 
@@ -38,13 +41,17 @@ the running server.
 To start lcserver in background mode, use the script: start_local_bg_server.
 You may specify the TCP/IP port address fro the server to use, on the
 command line, like so:
+```
  $ start_local_bg_server [<port>]
+```
 
 In this case, the log data from the server will be placed in the
 file: /tmp/test-server-log.output
 
 To stop the server, use the following command:
+```
   $ kill $(pgrep -f test-server)
+```
 
 Accessing the server
 ====================
@@ -70,7 +77,9 @@ it with the address of the server.
 
 Put the following lines in the /etc/lc.conf
 
+```
 server=localhost:8000
+```
 
 If using a remote labcontrol service, use one of the following configurations:
  * server={domain}/cgi-bin
