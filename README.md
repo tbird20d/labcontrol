@@ -61,7 +61,7 @@ To access the server using the command line, use the 'lc' command:
  * lc {board} power off
  * lc {board} power status
 
-FIXTHIS - need to make these match 'ebf'
+FIXTHIS - need to make these match the options used by 'ebf'
 
 Configuring 'lc' to access the server
 ======================================
