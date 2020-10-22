@@ -73,8 +73,8 @@ Put the following lines in the /etc/lc.conf
 server=localhost:8000
 
 If using a remote labcontrol service, use one of the following configurations:
- * server=<domain>/cgi-bin
- * server=<domain>/labcontrol
+ * server={domain}/cgi-bin
+ * server={domain}/labcontrol
 
 depending on the URI path to the lcserver.py CGI script as it is
 installed in the remote web server.
