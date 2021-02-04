@@ -16,20 +16,19 @@
 #  actions)
 #  2. a human user interace showing raw object (files and json contents)
 #  3. the computer ReST interface (used for sending, modifying and
-#     retrieving the data in the store)
+#     retrieving the data in the store, and for performing REST API actions
+#     on the objects)
 #
 # The server currently supports the top-level "pages":
-#   boards, requests, resources logs
+#   boards, resources, requests, logs
 #
-# currently, the lc command uses request to send urls like:
-#  POST /lcserver.py/?action=query_objects
-#  I'm calling this the 'action api'
-#
-# The labcontrol API specified with Timesys uses urls like this:
-#  /api/devices/bbb/power/reboot
+# The REST API specified with Timesys uses urls like this:
+#  /api/v0.2/devices/bbb/power/reboot
 # I'm calling this the 'path api'
 #
 # To do:
+# - convert everything over to the path api
+#   - list devices
 # - actions:
 #    - support reserve/release
 # - queries:
@@ -262,6 +261,7 @@ def save_file(req, file_field, upload_dir):
     msg += "File '%s' uploaded successfully!\n" % fileitem.filename
     return "OK", msg, filepath
 
+# this routine is the old-style action API, and is deprecated
 def do_put_object(req, obj_type):
     data_dir = req.config.data_dir + os.sep + obj_type + "s"
     result = "OK"
@@ -1020,6 +1020,7 @@ def return_api_board_action(req, board, action, rest):
 # {board} status -> api/v0.2/devices/{board}
 
 def do_api(req):
+    log_this("in do_api")
     # determine api operation from path
     req_path = req.environ.get("PATH_INFO", "")
     path_parts = req_path.split("/")
@@ -1028,16 +1029,22 @@ def do_api(req):
 
     #req.show_header("in do_api")
     #req.html.append("parts=%s" % parts)
+    log_this("parts=%s" % parts)
+
+    # check API version later.  For now, just ignore it
+    if parts[0] == "v0.2":
+        del(parts[0])
 
     if not parts:
         msg = "Invalid empty path after /api"
-        req.send_response("FAIL", msg)
+        req.send_api_response("FAIL", { "reason": msg } )
         return
 
     if parts[0] == "devices":
         if len(parts) == 1:
             # handle /api/devices - list devices
             # list devices (boards)
+            log_this("in do_api - calling return_api_object_list")
             return_api_object_list(req, "board")
             return
         else:
@@ -1068,16 +1075,22 @@ def do_api(req):
                 action = parts[2]
                 rest = parts[3:]
                 msg = "Unsupported elements '%s/%s' after /api/resources" % (action, "/".join(rest))
-                req.send_response("FAIL", msg)
+                req.send_api_response("FAIL", { "reason": msg } )
                 return
+    elif parts[0] == "requests":
+        if len(parts) == 1:
+            # handle /api/requests - list requests
+            return_api_object_list(req, "request")
+            return
+        else:
+            rest = parts[2:]
+            msg = "Unsupported elements '%s' after /api/requests" % ("/".join(rest))
+            req.send_api_response("FAIL", { "reason": msg } )
+            return
     else:
         msg = "Unsupported element '%s' after /api/" % parts[0]
-        req.send_response("FAIL", msg)
+        req.send_api_response("FAIL", { "reason": msg } )
         return
-
-    req.html.append("""<a href="%(url_base)s">Back to home page</a>""" % req.config)
-
-    req.show_footer()
 
 def handle_request(environ, req):
     req.environ = environ

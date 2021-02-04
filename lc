@@ -14,10 +14,10 @@
 # SPDX-License-Identifier:  MIT
 #
 # To Do:
-#   create set of commands (these will be similar to ttc verbs)
-#     lc list-boards
-#     lc
-#   send commands to server for data
+#  - convert to path api for operations
+#  - use separate verb/object forms for operations (like ebf)
+#    - 'lc list boards' instead of 'lc list-boards'
+#    - 'lc bbb power reboot' instead of 'lc bbb power-cycle'
 #
 
 # only import enough to get to container dispatcher in main()
@@ -41,7 +41,7 @@ glob = None
 # MAJOR, MINOR, REVISION, extra_revision
 # extra_revision, if non-empty, should start with a dash
 # (e.g. "-next", "-rc1")
-VERSION = (0, 1, 0, "")
+VERSION = (0, 2, 0, "")
 
 # define these as globals
 log = None
@@ -83,43 +83,10 @@ command_help = {
 
 "add-board": ("Registers a new board with Lab Control.",
     """Usage: lc add-board < board.json
-  Use list-boards to see the existing boards registered with the
+  Use 'lc list boards' to see the existing boards registered with the
   server.
 
   See the documentation for format of the board.json file."""),
-
-"list-boards": ("Show a list of registered boards.",
-    """Usage: lc list-boards [-q] [<criteria> ...]
-  Prints board names.
-
-  Options:
-    -q         Use "quiet" mode.  This prints only the board names, with no
-               additional information. This is suitable for piping to other
-               commands.
-    <criteria> Filter boards using the specified criteria.
-
-Each criteria is specified as string containing <name>=<value>, such as:
-host=timslab.  Asterisk (*) may be used at the beginning or end
-of the value, to indicate a wildcard match. Multiple criteria strings
-may be specified, and are separated with a space.
-
-Allowed names in criteria patterns are: 'host', 'board'.
-
-ex: lc list-boards host=timslab board=b*
-
-The result is a list of boards that match the criteria.  If no
-criteria are specified, all boards are listed.
-"""),
-
-"list-resources": ("Show a list of available resources.",
-    """Usage: lc list-resources
-  Prints resource names and summary information, if any.
-
-Each criteria is specified as string containing <name>=<value>, such as:
-name=power*.  Asterisk (*) may be used at the beginning or end
-of the value, to indicate a wildcard match. Multiple criteria strings
-may be specified, and are separated with a space.
-"""),
 
 "query-board": ("Show information about a board.",
     """Usage: lc query-board -b {board} [-q] [-n {attr}]
@@ -176,7 +143,7 @@ Put a request on the server to perform the indicated operation.
     """Usage: lc rm-request <request_id>
 
 The request_id is a request identifier on the server (which can be queried
-for with 'lc list-requests')."""),
+for with 'lc list requests')."""),
 
 "reserve": ("Reserve a board or resource for use.",
     """Usage: lc reserve [-f] [board] <name>
@@ -232,23 +199,6 @@ This command can be used to reboot a board. It is the same operation
 as the 'power-cycle' command.
 
 Example: lc reboot board raspberrypi3"""),
-
-"list-requests": ("List requests matching a criteria.",
-    """Usage: lc list-requests [<criteria> ...]
-
-Lookup requests in Lab Control , finding matches for specific criteria.
-Each criteria is specified as string containing <name>=<value>, such as:
-host=tims_desktop.  Asterisk (*) may be used at the beginning or end
-of the value, to indicate a wildcard match.
-
-Allowed names are: 'name', 'resource', 'state', 'requestor',
-  and 'request_time'.
-
-ex: lc list-requests type=power-*
-
-The result is a list of request that match the criteria.  If no
-criteria are specified, all requests on the server are listed.
-"""),
 
 }
 
@@ -733,6 +683,7 @@ def parse_where(where_string):
 
     return where_list
 
+# FIXTHIS - this uses the old requests API
 def get_objects_from_server(conf, obj_type, options):
     url = conf.SERVER_URL_BASE+"query_objects"
 
@@ -759,6 +710,30 @@ def get_objects_from_server(conf, obj_type, options):
     for obj in content.split("\n"):
         if obj:
             obj_list.append(obj)
+    return obj_list
+
+# returns a list of objects
+# if an error occurs, then the routine errors out with a message
+def get_objects_via_api(conf, obj_type, options):
+    url = conf.API_URL_BASE+"api/v0.2/" + obj_type
+
+    resp = requests.get(url)
+    if resp.status_code != 200:
+        error_out("Cannot read %s from server" % obj_type)
+
+    resp_data = resp.json()
+    if type(resp_data) != type([]):
+        # print error
+        try:
+            reason = resp_data["reason"]
+        except:
+            reason = "for unknown reasons"
+        error_out("Could not get %s from server: %s" % (obj_type, reason))
+
+    obj_list = []
+    for obj in resp_data:
+        obj_list.append(obj["hostname"])
+
     return obj_list
 
 # returns a list of board names
@@ -815,12 +790,16 @@ def get_boards(conf):
     obj_list = get_objects_from_server(conf, "board", [])
     return obj_list
 
-def do_list_objects(conf, obj_type, options):
+def list_objects_via_api(conf, obj_type, options):
     global quiet
 
-    obj_list = get_objects_from_server(conf, obj_type, options)
+    server_obj_type = obj_type
+    if obj_type == "boards":
+        server_obj_type = "devices"
 
-    indent = show_list_title("%ss on the LabControl server:" % obj_type.title())
+    obj_list = get_objects_via_api(conf, server_obj_type, options)
+
+    indent = show_list_title("%s on the LabControl server:" % obj_type.title())
     if obj_list:
         for obj in obj_list:
             print indent + obj
@@ -830,48 +809,9 @@ def do_list_objects(conf, obj_type, options):
         else:
             extra_msg = ""
         if not quiet:
-            print("No %ss found%s." % (obj_type, extra_msg))
+            print("No %s found%s." % (obj_type, extra_msg))
 
     sys.exit(0)
-
-def do_list_objects_via_api(conf, obj_type, options):
-    global quiet
-
-    obj_list = get_objects_from_server(conf, obj_type, options)
-
-    indent = show_list_title("%ss on the LabControl server:" % obj_type.title())
-    if obj_list:
-        for obj in obj_list:
-            print indent + obj
-    else:
-        if options:
-            extra_msg = " that match the specified criteria"
-        else:
-            extra_msg = ""
-        if not quiet:
-            print("No %ss found%s." % (obj_type, extra_msg))
-
-    sys.exit(0)
-
-def do_list_boards(conf, options):
-    indent = show_list_title("Boards on the LabControl server:")
-
-    board_list = get_boards_via_api(conf, options)
-
-    if board_list:
-        for board in board_list:
-            print indent + board
-    else:
-        if not quiet:
-            print("No boards found.")
-
-    sys.exit(0)
-
-def do_list_resources(conf, options):
-    do_list_objects(conf, "resource", options)
-
-def do_list_requests(conf, options):
-    do_list_objects(conf, "request", options)
 
 def do_list(conf, options):
     # obj_type is a required first argument
@@ -880,13 +820,13 @@ def do_list(conf, options):
         del options[0]
     except:
         error_out("No object type specified for list operation" + \
-                "Please specify either 'boards', 'resources' or 'requests'.")
+                "Please specify either 'boards', 'devices', 'resources' or 'requests'.")
 
-    if obj_type not in ["boards", "resources", "requests"]:
+    if obj_type not in ["boards", "devices", "resources", "requests"]:
         error_out(("Invalid object type '%s'\n" % obj_type) + \
-                "Please specify either 'boards', 'resources' or 'requests'.")
+                "Please specify one of: 'boards', 'devices', 'resources' or 'requests'.")
 
-    do_list_objects(conf, obj_type[:-1], options)
+    list_objects_via_api(conf, obj_type, options)
 
 # returns dictionary for the request
 def get_request(conf, req_id):
@@ -1111,6 +1051,7 @@ def do_put_request(conf, options):
     sys.exit(0)
 
 
+# This routine has no callers, and uses the old API
 def do_put_resource(conf, options):
     try:
         test_arg = options[0]
@@ -1712,16 +1653,10 @@ def main():
         print getattr(conf, name, "")
         sys.exit(0)
 
-    if command == "list-boards":
-        # shows register labcontrol boards
-        do_list_boards(conf, options)
-
-    if command == "list-requests":
-        do_list_requests(conf, options)
-
     if command == "list":
         do_list(conf, options)
 
+    # FIXTHIS - remove or finish these routines
     if command == "put-request":
         do_put_request(conf, options)
 
@@ -1729,19 +1664,12 @@ def main():
         do_rm_request(conf, options)
 
     if command == "add-resource":
-        do_add_run(conf, options)
+        do_add_resource(conf, options)
         sys.exit(0)
 
     if command == "reserve":
         rcode = do_reserve(conf, options)
         sys.exit(rcode)
-
-    if command == "release-resource":
-        rcode = do_release(conf, options)
-        sys.exit(rcode)
-
-    if command == "list-resources":
-        do_list_resources(conf, options)
 
     if command == "query-request":
         do_query_request(conf, options)
