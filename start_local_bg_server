@@ -6,16 +6,16 @@
 # find the directory this script is being run from
 DIR=$(dirname $(realpath "${BASH_SOURCE[0]}"))
 
-echo "Switching fserver to use base directory:"
-echo "   $DIR/fserver-data"
+echo "Switching lc-server to use base directory:"
+echo "   $DIR/lc-data"
 
 # if DIR has '&' in it somewhere, this won't work
-perl -p -i -e "s&^base_dir = .*&base_dir = \"$DIR/fserver-data\"&" fserver.py
+perl -p -i -e "s&^base_dir = .*&base_dir = \"$DIR/lc-data\"&" lcserver.py
 
-echo "Starting fserver"
-echo "Test web server is logging to /tmp/fserver-test-server.log"
+echo "Starting lcserver"
+echo "Test web server is logging to /tmp/lcserver-test-server.log"
 cd $DIR
 unset http_proxy
 unset ftp_proxy
-python test-server.py $1 >>/tmp/fserver-test-server.log 2>&1 &!
+python test-server.py $1 >>/tmp/lcserver-test-server.log 2>&1 &!
 
