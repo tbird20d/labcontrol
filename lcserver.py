@@ -75,8 +75,8 @@ if not os.path.exists(base_dir):
 if not os.path.exists(base_dir):
     base_dir = "/home/tbird/work/labcontrol/lc-data"
 
-RSLT_FAIL="Fail"
-RSLT_OK="Success"
+RSLT_FAIL="fail"
+RSLT_OK="success"
 
 # this is used for debugging only
 def log_this(msg):
@@ -205,7 +205,7 @@ class req_class:
 #######################
 
 # response objects are dictionaries with the following schema:
-# { "result" : "success",
+# { "result" : "success" (RSLT_OK),
 #    "data" : <command-specific> }
 # { "result" : "fail",
 #    "message": "reason for failure" }
@@ -230,7 +230,7 @@ def get_timestamp():
 
 def save_file(req, file_field, upload_dir):
     # some debugging...
-    F = "FAIL"
+    F = RSLT_FAIL
     msg = ""
 
     #msg += "req.form=\n"
@@ -259,21 +259,20 @@ def save_file(req, file_field, upload_dir):
         fout.write(chunk)
     fout.close()
     msg += "File '%s' uploaded successfully!\n" % fileitem.filename
-    return "OK", msg, filepath
+    return RSLT_OK, msg, filepath
 
 # this routine is the old-style action API, and is deprecated
 def do_put_object(req, obj_type):
     data_dir = req.config.data_dir + os.sep + obj_type + "s"
-    result = "OK"
+    result = RSLT_OK
     msg = ""
 
     # convert form (cgi.fieldStorage) to dictionary
     try:
         obj_name = req.form["name"].value
     except:
-        result = "FAIL"
         msg += "Error: missing %s name in form data" % obj_type
-        req.send_response(req, result, msg)
+        req.send_response(req, RSLT_FAIL, msg)
         return
 
     obj_dict = {}
@@ -285,7 +284,7 @@ def do_put_object(req, obj_type):
         try:
             value = obj_dict[field]
         except:
-            result = "FAIL"
+            result = RSLT_FAIL
             msg += "Error: missing required field '%s' in form data" % field
             break
 
@@ -299,11 +298,11 @@ def do_put_object(req, obj_type):
         #    board_path = board_data_dir + os.sep + board_filename
         #
         #    if not os.path.isfile(board_path):
-        #        result = "FAIL"
+        #        result = RSLT_FAIL
         #        msg += "Error: No matching board '%s' registered with server (from field '%s')" % (value, field)
         #        break
 
-    if result != "OK":
+    if result != RSLT_OK:
         req.send_response(req, result, msg)
         return
 
@@ -350,14 +349,14 @@ def do_update_object(req, obj_type):
         obj_name = req.form[obj_type].value
     except:
         msg += "Error: can't read %s from form" % obj_type
-        req.send_response("FAIL", msg)
+        req.send_response(RSLT_FAIL, msg)
         return
 
     filename = obj_type + "-" + obj_name + ".json"
     filepath = data_dir + os.sep + filename
     if not os.path.exists(filepath):
         msg += "Error: filepath %s does not exist" % filepath
-        req.send_response("FAIL", msg)
+        req.send_response(RSLT_FAIL, msg)
         return
 
     # read requested object file
@@ -377,7 +376,7 @@ def do_update_object(req, obj_type):
         else:
             msg = "Error - can't change field '%s' in %s %s (not allowed)" % \
                     (k, obj_type, obj_name)
-            req.send_response("FAIL", msg)
+            req.send_response(RSLT_FAIL, msg)
             return
 
     # put dictionary back in json format (beautified)
@@ -387,7 +386,7 @@ def do_update_object(req, obj_type):
     fout.write(data+'\n')
     fout.close()
 
-    req.send_response("OK", data)
+    req.send_response(RSLT_OK, data)
 
 # try matching with simple wildcards (* at start or end of string)
 def item_match(pattern, item):
@@ -408,12 +407,12 @@ def do_query_objects(req):
         obj_type = req.form["obj_type"].value
     except:
         msg = "Error: can't read object type ('obj_type') from form"
-        req.send_response("FAIL", msg)
+        req.send_response(RSLT_FAIL, msg)
         return
 
     if obj_type not in ["board", "resource", "request"]:
         msg = "Error: unsupported object type '%s' for query" % obj_type
-        req.send_response("FAIL", msg)
+        req.send_response(RSLT_FAIL, msg)
         return
 
     data_dir = req.config.data_dir + os.sep + obj_type + "s"
@@ -450,7 +449,7 @@ def do_query_objects(req):
     for obj_name in match_list:
        msg += obj_name+"\n"
 
-    req.send_response("OK", msg)
+    req.send_response(RSLT_OK, msg)
 
 
 def old_do_query_requests(req):
@@ -531,7 +530,7 @@ def old_do_query_requests(req):
         req_id = f[:-5]
         msg += req_id+"\n"
 
-    req.send_response("OK", msg)
+    req.send_response(RSLT_OK, msg)
 
 # FIXTHIS - could do get_next_request (with wildcards) to save a query
 def do_get_request(req):
@@ -544,14 +543,14 @@ def do_get_request(req):
         request_id = req.form["request_id"].value
     except:
         msg += "Error: can't read request_id from form"
-        req.send_response("FAIL", msg)
+        req.send_response(RSLT_FAIL, msg)
         return
 
     filename = request_id + ".json"
     filepath = req_data_dir + os.sep + filename
     if not os.path.exists(filepath):
         msg += "Error: filepath %s does not exist" % filepath
-        req.send_response("FAIL", msg)
+        req.send_response(RSLT_FAIL, msg)
         return
 
     # read requested file
@@ -561,7 +560,7 @@ def do_get_request(req):
 
     # beautify the data, for now
     data = json.dumps(mydict, sort_keys=True, indent=4, separators=(',', ': '))
-    req.send_response("OK", data)
+    req.send_response(RSLT_OK, data)
 
 def do_remove_object(req, obj_type):
     data_dir = req.config.data_dir + os.sep + obj_type + "s"
@@ -571,14 +570,14 @@ def do_remove_object(req, obj_type):
         obj_name = req.form[obj_type].value
     except:
         msg += "Error: can't read '%s' from form" % obj_type
-        req.send_response("FAIL", msg)
+        req.send_response(RSLT_FAIL, msg)
         return
 
     filename = obj_name + ".json"
     filepath = data_dir + os.sep + filename
     if not os.path.exists(filepath):
         msg += "Error: filepath %s does not exist" % filepath
-        req.send_response("FAIL", msg)
+        req.send_response(RSLT_FAIL, msg)
         return
 
     # FIXTHIS - should check permissions here
@@ -586,7 +585,7 @@ def do_remove_object(req, obj_type):
     os.remove(filepath)
 
     msg += "%s %s was removed" % (obj_type, obj_name)
-    req.send_response("OK", msg)
+    req.send_response(RSLT_OK, msg)
 
 def file_list_html(req, file_type, subdir, extension):
     if file_type == "files":
@@ -689,7 +688,7 @@ def show_board_info(req, bmap):
     # show power status
     if pc:
        (result, msg) = get_power_status(req, bmap)
-       if result == "OK":
+       if result == RSLT_OK:
            power_status = msg
        else:
            power_status = req.html_error(msg)
@@ -709,29 +708,29 @@ def show_board_info(req, bmap):
 """ % reboot_link)
     req.html.append("</ul>")
 
-# returns (OK|FAIL, msg)
+# returns (RSLT_OK, status|RSLT_FAIL, message)
+# status can be one of: "ON", "OFF", "UNKNOWN"
 def get_power_status(req, bmap):
     pdu_map = get_connected_resource(req, bmap, "power-controller")
     if not pdu_map:
         msg = "Board %s has no connected power-controller resource" % bmap["name"]
-        return ("FAIL", msg)
+        return (RSLT_FAIL, msg)
 
     # lookup command to execute in resource_map
     if "status_cmd" not in pdu_map:
         msg = "Resource '%s' does not have status_cmd attribute, cannot execute" % pdu_map["name"]
-        return ("FAIL", msg)
+        return (RSLT_FAIL, msg)
 
     cmd_str = pdu_map["status_cmd"]
-    rcode, output = getstatusoutput(cmd_str)
+    rcode, status = getstatusoutput(cmd_str)
     if rcode:
         msg = "Result of power status operation on board %s = %d" % (board_map["name"], rcode)
-        msg += "command output='%s'" % output
-        return ("FAIL", msg)
+        msg += "command output='%s'" % status
+        return (RSLT_FAIL, msg)
 
     # FIXTHIS - translate result here, if needed
-    # need to determine required output format
 
-    return ("OK", output)
+    return (RSLT_OK, status)
 
 # show the web ui for boards on this machine
 def show_boards(req):
@@ -891,7 +890,7 @@ def get_object_data(req, obj_type, obj_name):
     if not os.path.isfile(file_path):
         msg = "%s object '%s' in not recognized by the server" % (obj_type, obj_name)
         msg += "- file_path was '%s'" % file_path
-        req.send_response("FAIL", msg)
+        req.send_response(RSLT_FAIL, msg)
         return {}
 
     data = ""
@@ -900,11 +899,13 @@ def get_object_data(req, obj_type, obj_name):
     except:
         msg = "Could not retrieve information for %s '%s'" % (obj_type, obj_name)
         msg += "- file_path was '%s'" % file_path
-        req.send_response("FAIL", msg)
+        req.send_response(RSLT_FAIL, msg)
         return {}
 
     return data
 
+# FIXTHIS - get_object_map is called from both show and path api paths
+# but it sends a text response if the object json is messed up
 def get_object_map(req, obj_type, obj_name):
     data = get_object_data(req, obj_type, obj_name)
     if not data:
@@ -915,7 +916,7 @@ def get_object_map(req, obj_type, obj_name):
     except:
         msg = "Invalid json detected in %s '%s'" % (obj_type, obj_name)
         msg += "\njson='%s'" % data
-        req.send_response("FAIL", msg)
+        req.send_response(RSLT_FAIL, msg)
         return {}
 
     return obj_map
@@ -925,7 +926,7 @@ def get_connected_resource(req, board_map, resource_type):
     resource = board_map.get(resource_type, None)
     if not resource:
         msg = "Could not find a %s resource connected to board '%s'" % (resource_type, board)
-        req.send_response("FAIL", msg)
+        req.send_response(RSLT_FAIL, msg)
         return None
 
     resource_map = get_object_map(req, "resource", resource)
@@ -937,7 +938,7 @@ def return_api_object_data(req, obj_type, obj_name):
     if not data:
         return
 
-    req.send_response("OK", data)
+    req.send_api_response(RSLT_OK, data)
 
 # execute a resource command
 # returns a tuple of (result, string)
@@ -969,46 +970,47 @@ def exec_command(req, board_map, resource_map, res_cmd):
 # execute a resource command
 def return_exec_command(req, board_map, resource_map, res_cmd):
     (result, msg) = exec_command(req, board_map, resource_map, res_cmd)
-    resp_dict = {"message": msg}
-    req.send_api_response(result, resp_dict)
-
-def return_power_status(req, board_map, pdu_map):
-    (result, msg) = get_power_status(req, board_map, pdu_map)
-    req.send_response(result, msg)
+    req.send_api_response(result, {"message": msg})
 
 # rest is a list of the rest of the path
 def return_api_board_action(req, board, action, rest):
     boards = get_object_list(req, "board")
     if board not in boards:
         msg = "Could not find board '%s' registered with server" % board
-        req.send_response("FAIL", msg)
+        req.send_api_response(RSLT_FAIL, {"message": msg})
         return
 
     board_map = get_object_map(req, "board", board)
     if not board_map:
+        msg = "Problem loading data for board '%s'" % board
+        req.send_api_response(RSLT_FAIL, {"message": msg})
         return
 
     if action == "power":
         pdu_map = get_connected_resource(req, board_map, "power-controller")
         if not pdu_map:
+            msg = "No power controller resource found for board %s" % board
+            req.send_api_response(RSLT_FAIL, {"message": msg})
             return
 
-        if not rest:
-            return_power_status(req, board_map, pdu_map)
-            return
-        elif rest[0] == "status":
-            return_power_status(req, board_map, pdu_map)
+        if not rest or rest[0] == "status":
+            (result, msg) = get_power_status(req, board_map)
+            log_this("power status result=%s,%s" % (result, msg))
+            if result==RSLT_OK:
+                req.send_api_response(result, {"data": msg})
+            else:
+                req.send_api_response(result, {"message": msg})
             return
         elif rest[0] in ["on", "off", "reboot"]:
             return_exec_command(req, board_map, pdu_map, rest[0])
             return
         else:
             msg = "power action '%s' not supported" % rest[0]
-            req.send_response("FAIL", msg)
+            req.send_api_response(RSLT_FAIL, {"message": msg} )
             return
 
     msg = "action '%s' not supported (rest='%s')" % (action, rest)
-    req.send_response("FAIL", msg)
+    req.send_api_response(RSLT_FAIL, {"message": msg})
 
 # api paths are:
 #  lc/ebf command -> api path
@@ -1037,7 +1039,7 @@ def do_api(req):
 
     if not parts:
         msg = "Invalid empty path after /api"
-        req.send_api_response("FAIL", { "reason": msg } )
+        req.send_api_response(RSLT_FAIL, { "message": msg } )
         return
 
     if parts[0] == "devices":
@@ -1075,7 +1077,7 @@ def do_api(req):
                 action = parts[2]
                 rest = parts[3:]
                 msg = "Unsupported elements '%s/%s' after /api/resources" % (action, "/".join(rest))
-                req.send_api_response("FAIL", { "reason": msg } )
+                req.send_api_response(RSLT_FAIL, { "message": msg } )
                 return
     elif parts[0] == "requests":
         if len(parts) == 1:
@@ -1085,11 +1087,11 @@ def do_api(req):
         else:
             rest = parts[2:]
             msg = "Unsupported elements '%s' after /api/requests" % ("/".join(rest))
-            req.send_api_response("FAIL", { "reason": msg } )
+            req.send_api_response(RSLT_FAIL, { "message": msg } )
             return
     else:
         msg = "Unsupported element '%s' after /api/" % parts[0]
-        req.send_api_response("FAIL", { "reason": msg } )
+        req.send_api_response(RSLT_FAIL, { "message": msg } )
         return
 
 def handle_request(environ, req):
@@ -1150,7 +1152,7 @@ def handle_request(environ, req):
             action_function = globals().get("do_" + action)
         except:
             msg = "Error: unsupported action '%s' (probably missing a do_%s routine)" % (action, action)
-            req.send_response("FAIL", msg)
+            req.send_response(RSLT_FAIL, msg)
             return
 
         action_function(req)

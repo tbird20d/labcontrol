@@ -43,6 +43,9 @@ glob = None
 # (e.g. "-next", "-rc1")
 VERSION = (0, 2, 0, "")
 
+# this is from the REST API standard
+RSLT_OK = "success"
+
 # define these as globals
 log = None
 tail_fd = None
@@ -119,6 +122,25 @@ The result is a list of boards that match the criteria.  If no
 criteria are specified, all boards are listed.
 """),
 
+"power": ("Perform a power operation on a board.",
+    """Usage: lc {board} power {operation}
+  Perform a power operation on a board.
+
+  Operations:
+    status     Show the power status of a board.  The power status
+               will be one of "ON", "OFF", or "UNKNOWN", if the
+               configured power controller for the device is incapable
+               of reporting the power status.
+    on         Turn power on to the board.
+    off        Turn power off to the board.
+    reboot     Reboot the board.
+
+ex: lc myboard power reboot
+
+The labcontrol server will reboot the board.  If the board cannot be rebooted
+a message will be provided.
+"""),
+
 "query-request": ("Show information about a request.",
     """Usage: lc query-request <request-id> [-n <attr>]
   Show information about an request.  By default, show
@@ -164,41 +186,6 @@ Release the named board or resource.
 A message and the exit code indicate if the resource was released.
 
    ex: lc release board beaglebone"""),
-
-"power-on": ("Power on the selected board.",
-    """Usage: lc power-on board <board1>[,<board2>...]
-
-This command can be used to power on a board. The board file must
-contain a definition for BOARD_CONTROL (e.g., pdudaemon or ttc) and
-the corresponding options (see README.pdu).
-
-Example: lc power-on board raspberrypi3"""),
-
-"power-off": ("Power off the selected board.",
-    """Usage: lc power-off board <board1>[,<board2>...]
-
-This command can be used to power off a board. The board file must
-contain a definition for BOARD_CONTROL (e.g., pdudaemon or ttc) and
-the corresponding options (see README.pdu).
-
-Example: lc power-off board raspberrypi3"""),
-
-"power-cycle": ("Power cycle the selected board.",
-    """Usage: lc power-cycle board <board1>[,<board2>...]
-
-This command can be used to power cycle (reboot) a board. The board file must
-contain a definition for BOARD_CONTROL (e.g., pdudaemon or ttc) and
-the corresponding options (see README.pdu).
-
-Example: lc power-cycle board raspberrypi3"""),
-
-"reboot": ("Reboot the selected board.",
-    """Usage: lc reboot board <board1>[,<board2>...]
-
-This command can be used to reboot a board. It is the same operation
-as the 'power-cycle' command.
-
-Example: lc reboot board raspberrypi3"""),
 
 }
 
@@ -704,7 +691,7 @@ def get_objects_from_server(conf, obj_type, options):
 
     resp = requests.post(url, data=data)
     result, content = resp.text.split('\n', 1)
-    if result != "OK":
+    if result != RSLT_OK:
         error_out("Can't read %ss from server\nServer returned message: %s" % (obj_type, content))
     obj_list = []
     for obj in content.split("\n"):
@@ -725,7 +712,7 @@ def get_objects_via_api(conf, obj_type, options):
     if type(resp_data) != type([]):
         # print error
         try:
-            reason = resp_data["reason"]
+            reason = resp_data["message"]
         except:
             reason = "for unknown reasons"
         error_out("Could not get %s from server: %s" % (obj_type, reason))
@@ -750,45 +737,6 @@ def get_boards_via_api(conf, options):
         board_list.append(obj["hostname"])
 
     return board_list
-
-
-def get_requests_from_server(conf, options):
-    url = conf.SERVER_URL_BASE+"query_requests"
-
-    # see if we specified a host filter
-    have_host_filter = False
-    for opt in options:
-        if opt.startswith("host="):
-            have_host_filter = True
-
-    # filter by this machine's host, if no host filter was set
-    if not have_host_filter:
-        options.append("host=%s" % conf.host)
-
-    valid_fields = ["board", "host", "precleanup", "postcleanup",
-                    "reboot", "rebuilt", "request_time", "requestor", "run_id",
-                    "spec", "state", "test_name"]
-
-    for criteria in options:
-        if "=" not in criteria:
-            error_out("Unrecognized criteria '%s' specified for query of requests" % criteria)
-        field, value = criteria.split("=", 1)
-        if field not in valid_fields:
-            error_out("Request query criteria must be one of %s" % valid_fields)
-        data[field] = value
-    resp = requests.post(url, data=data)
-    result, content = resp.text.split('\n', 1)
-    if result != "OK":
-        error_out("Can't read requests from server\nServer returned message: %s" % content)
-    req_list = []
-    for req in content.split("\n"):
-        if req:
-            req_list.append(req)
-    return req_list
-
-def get_boards(conf):
-    obj_list = get_objects_from_server(conf, "board", [])
-    return obj_list
 
 def list_objects_via_api(conf, obj_type, options):
     global quiet
@@ -828,13 +776,74 @@ def do_list(conf, options):
 
     list_objects_via_api(conf, obj_type, options)
 
+def do_power(conf, options):
+    # board is a required first argument
+    try:
+        board = options[0]
+        del options[0]
+    except:
+        error_out("No board specified for power operation\n" + \
+                "Please specify a board from the list available with 'lc list boards'.")
+
+    # figure out what power operation we're performing
+    # should be one of 'status', 'on', 'off', 'reboot'
+    try:
+        operation = options[0].lower()
+        del options[0]
+    except:
+        error_out("No power operation specified.\n" + \
+                "Please specify one of 'status', 'on', 'off', or 'reboot'.")
+
+    if operation not in ["status", "on", "off", "reboot"]:
+        error_out("Invalid power operation specified.\n" + \
+                "Please specify one of 'status', 'on', 'off', or 'reboot'.")
+
+    url = conf.API_URL_BASE+"api/v0.2/devices/%s/power/%s" % (board, operation)
+
+    resp = requests.get(url)
+    if resp.status_code != 200:
+        error_out("Cannot perform power %s operation on server" % operation )
+
+    resp_data = resp.json()
+
+    try:
+        result = resp_data["result"]
+    except:
+        error_out("Malformed response from server. Missing 'result'. resp=%s" % resp_data)
+
+    if result != RSLT_OK:
+        # print error
+        try:
+            reason = resp_data["message"]
+        except:
+            reason = "for unknown reasons"
+        error_out("Could not do operation 'power %s'. From server: %s" % (operation, reason))
+
+    # operation was performed, result was "success"
+
+    # report status depending on operation
+    if operation in ["on", "off"]:
+        print "Device %s is powered %s" % (board, operation.upper())
+        return
+    if operation == "reboot":
+        print "Device %s was rebooted." % board
+        return
+    if operation == "status":
+        power_status = resp_data["data"]
+        print "Device %s is powered %s" % (board, power_status)
+        return
+
+    # this seems unlikely, given the checks above
+    # but be thorough in error handling
+    error_out("Invalid operation '%s' for power command" % operation)
+
 # returns dictionary for the request
 def get_request(conf, req_id):
     url = conf.SERVER_URL_BASE+"get_request"
     data = { "request_id": req_id }
     resp = requests.post(url, data=data)
     result, content = resp.text.split('\n', 1)
-    if result != "OK":
+    if result != RSLT_OK:
         error_out("Can't read request '%s' from server\nServer returned message: %s" % (req_id, content))
 
     try:
@@ -857,7 +866,7 @@ def update_request(conf, req_id, state, run_id=None):
         data["run_id"] = run_id
     resp = requests.post(url, data=data)
     result, content = resp.text.split('\n', 1)
-    if result != "OK":
+    if result != RSLT_OK:
         error_out("Can't update request '%s' from server\nServer returned message: %s" % (req_id, content))
 
     try:
@@ -874,7 +883,7 @@ def remove_request(conf, req_id):
     data = { "request_id": req_id }
     resp = requests.post(url, data=data)
     result, content = resp.text.split('\n', 1)
-    if result != "OK":
+    if result != RSLT_OK:
         print("Can't remove request '%s' from server\nServer returned message: %s" % (req_id, content))
     return result
 
@@ -883,7 +892,7 @@ def do_rm_request(conf, options):
     req_id = options[0]
 
     result = remove_request(conf, req_id)
-    if result == "OK":
+    if result == RSLT_OK:
         print"Request was removed from the server"
         sys.exit(0)
     else:
@@ -1043,7 +1052,7 @@ def do_put_request(conf, options):
             }
     resp = requests.post(url, data=data)
     result, content = resp.text.split('\n', 1)
-    if result != "OK":
+    if result != RSLT_OK:
         error_out("Can't put request to server\nServer returned message: %s" % content)
 
     print "Request was accepted by the server."
@@ -1075,7 +1084,7 @@ def do_put_resource(conf, options):
     if created_package:
         os.remove(test_filepath)
     result, content = resp.text.split('\n', 1)
-    if result != "OK":
+    if result != RSLT_OK:
         error_out("Can't put test to server\nServer returned message: %s" % content)
 
     print "Test package %s was accepted by the server." % os.path.basename(test_filepath)
@@ -1103,80 +1112,6 @@ def match_from_list(item, item_list):
             else:
                 match = candidate
     return match
-
-# get the board args for a command from options
-# allowed flags are:
-#   ! = required (error_out if missing)
-#   , = allow list of boards (if missing, a list is returned with only one element)
-#   a = allow 'all'
-#   m = allow match with longer name, if match is unique
-#
-# you must specify ',' if you specify 'a'
-# routine allows for using LC_BOARD, if it's in the environment
-#
-# returns (board_name_list, options)
-#   board_name_list might only contain a single entry
-#
-# example options:
-#   board myboard    # simple case matching one board
-#   board bea,min    # matches beaglebone and minnowboard
-#   board all        # expands to all installed boards
-#
-def get_board_arg(cmd, conf, options, flags):
-    # check for 'board' keyword, or environment variable
-    # specified option has precedence over environment variable
-    if 'board' not in options:
-        try:
-            board_names = os.environ["LC_BOARD"]
-        except:
-            # ok - no board specified, is it required?
-            if '!' in flags:
-                # ok, it's required, is a default board configured?
-                if conf.default_board:
-                    options.insert(0, conf.default_board)
-                    options.insert(0, "-b")
-                else:
-                    error_out("%s command requires a board" % cmd)
-            else:
-                return ([None], options)
-
-    pos = options.index('board')
-    try:
-        board_names = options[pos + 1]
-    except IndexError:
-        error_out("Board not provided after 'board'.")
-
-    del(options[pos+1])
-    del(options[pos])
-
-    # now we have a single board or a comma-separated list
-    if ',' in board_names and ',' not in flags:
-        error_out("Multiple board names '%s' is not allowed" % board_names)
-
-    avail_boards = get_boards(conf)
-
-    # now check for board presence and short-matching
-    board_list = []
-    for board in board_names.split(','):
-        if board in avail_boards:
-            board_list.append(board)
-            continue
-
-        # ok, board is not present, check for unique short-match
-        matching_str = ""
-        if 'm' in flags:
-            matching_str = "matching "
-            match_board = match_from_list(board, avail_boards)
-            if match_board:
-                if match_board == "*multiple*":
-                    error_out("Multiple boards matched '%s'; cannot proceed." % board)
-                else:
-                    board_list.append(match_board)
-                    continue
-
-        error_out("Board %s'%s' not found." % (matching_str, board))
-
-    return (board_list, options)
 
 
 def do_query_board(bvars, options):
@@ -1342,160 +1277,6 @@ def do_setenv(bmap, options=[]):
         print "Use 'exit' to exit the sub-shell."
         os.system("/bin/bash")
 
-# resource reservation system
-
-# reserve a resource for use
-def do_reserve_resource(conf, options):
-    # get resource name
-    res_name = None
-
-    board_names, options = get_board_arg("reserve-resource", conf, options, "m")
-    res_name = board_names[0]
-    res_type = "board"
-
-    if not res_name:
-        error_out("Missing resource to reserve (specify a board with '-b')")
-
-    # handle -f (force) option
-    force = 0
-    if "-f" in options:
-        force = 1
-        options.remove("-f")
-
-    # create lock directory, if it doesn't exist
-    if not os.path.isdir(conf.lockdir):
-        os.mkdir(conf.lockdir)
-        os.chmod(conf.lockdir, 0777)
-
-    start_time = time.strftime('%Y-%m-%d_%H:%M:%S')
-
-    rfile_fmt = "%s/reservation-%s-%s.json"
-    rfile = rfile_fmt % (conf.lockdir, res_type, res_name)
-    res = {"res_type": res_type, "res_name": res_name,
-            "start_time": start_time, "last_check_time": start_time}
-    if not os.path.isfile(rfile) or force:
-        try:
-            with open(rfile, "w") as res_fd:
-                json.dump(res, res_fd, indent=4, ensure_ascii=False)
-        except:
-            error_out("Could not create reservation file %s" % rfile)
-
-        try:
-            os.chmod(rfile, 0777)
-        except:
-            print("Could not chmod reservation file %s" % rfile)
-
-        print("Reserved resource %s (type: %s)" % (res_name, res_type))
-    else:
-        with open(rfile, "r") as res_fd:
-            res = json.load(res_fd)
-
-        print("Resource '%s' is already reserved" % res["res_name"])
-        print("Reservation began at: %s" % res["start_time"])
-        return 1
-
-    return 0
-
-def do_release_resource(conf, options):
-    # get resource name
-    res_name = None
-
-    board_names, options = get_board_arg("release-resource", conf, options, "m")
-    res_name = board_names[0]
-    res_type = "board"
-
-    if not res_name:
-        error_out("Missing resource to release (specify a board with '-b')")
-
-    rfile_fmt = "%s/reservation-%s-%s.json"
-    rfile = rfile_fmt % (conf.lockdir, res_type, res_name)
-    if not os.path.isfile(rfile):
-        error_out("Resource %s (type: %s) is not reserved." % (res_name, res_type))
-    try:
-        os.remove(rfile)
-    except:
-        error_out("Could not remove reservation file %s" % rfile)
-
-    print("Resource '%s' is no longer reserved." % res_name)
-
-    return 0
-
-def do_pdudaemon(command, bvars):
-    # pdudaemon hostname
-    if 'PDUDAEMON_HOSTNAME' in bvars:
-        pdudaemon_hostname = bvars['PDUDAEMON_HOSTNAME']
-    else:
-        pdudaemon_hostname = 'localhost'
-
-    # pdudaemon port (optional, default 16421)
-    if 'PDUDAEMON_PORT' in bvars:
-        pdudaemon_port = bvars['PDUDAEMON_PORT']
-    else:
-        pdudaemon_port = '16421'
-
-    # pdu hostname
-    if 'PDU_HOSTNAME' in bvars:
-        pdu_hostname = bvars['PDU_HOSTNAME']
-    else:
-        error_out('PDU_HOSTNAME not specified in board file')
-
-    # pdu port
-    if 'PDU_PORT' in bvars:
-        pdu_port = bvars['PDU_PORT']
-    else:
-        error_out('PDU_PORT not specified in board file')
-
-    # pdu delay
-    if 'PDU_DELAY' in bvars:
-        pdu_delay = bvars['PDU_PORT']
-    else:
-        pdu_delay = '0'
-
-    cmd_map = {
-        'power-on' : 'on',
-        'power-off' : 'off',
-        'power-cycle' : 'reboot'
-    }
-    cmd = cmd_map[command]
-
-    query='&'.join(['hostname='+pdu_hostname, 'port='+pdu_port, 'delay='+pdu_delay])
-    url = 'http://%s:%s/power/control/%s?%s' % (pdudaemon_hostname, pdudaemon_port, cmd, query)
-    try:
-        resp = requests.get(url)
-    except requests.exceptions.ConnectionError:
-        error_out("Could not connect to PDUDaemon on %s:%s" % (
-            pdudaemon_hostname, pdudaemon_port))
-
-    if resp.status_code != 200:
-        error_out("pdudaemon did not accept the request")
-
-    return 0
-
-def do_ttc(command, bvars, board_name):
-    if 'TTC_TARGET' in bvars:
-        ttc_target = bvars['TTC_TARGET']
-    else:
-        ttc_target = board_name
-
-    cmd_map = {
-        'power-on' : 'on',
-        'power-off' : 'off',
-        'power-cycle' : 'reboot'
-    }
-    cmd = cmd_map[command]
-
-    subprocess.check_call('ttc %s %s' % (ttc_target, cmd), shell=True)
-
-    return 0
-
-def do_power_control(conf, options, command):
-    board_names, options = get_board_arg(command, conf, options, "!m")
-    board = board_names[0]
-
-    print("Should do power_control %s on board %s here" % (command, board))
-
-    sys.exit(0)
-
 # this takes an exception object (e), and formats it as a string
 # safely (handling UnicodeEncode errors), then shows usage help, and
 # exits the program with an error message.
@@ -1656,6 +1437,10 @@ def main():
     if command == "list":
         do_list(conf, options)
 
+    if command == "power":
+        do_power(conf, options)
+        sys.exit(0)
+
     # FIXTHIS - remove or finish these routines
     if command == "put-request":
         do_put_request(conf, options)
@@ -1685,12 +1470,6 @@ def main():
     #bmap = get_boards(conf)
     #board = bmap[board_name]
     #bvars = get_board_vars(board, conf)
-
-    if command in ["power-on", "power-off", "power-cycle", "reboot"]:
-        try:
-            do_power_control(conf, options, command)
-        except Exception as e:
-            sys.exit(str(e) + '\n' + command_help[command][1])
 
     # LEGACY stuff follows - need to review
     # process the command
