@@ -7,23 +7,23 @@ schema ignores result code, with has schema:
 
 Schema issues:
  - I don't like unnamed lists in the schema - see list boards and mydevices
-   - list is not inside a dictionary - whant about
+   - list is not inside a dictionary - what about
 
 
 
-command line     REST API URI path      result                      display
--------------    ------------------     ----------                  ---------
+command line       REST API URI path      result                      display
+-------------      ------------------     ----------                  ---------
 *list boards,      api/v0.2/devices/      { [ {"hostname":"board1"},  board1
 list devices                                           ...] }
 ----------------------------------------------------------------------------
 *mydevices         api/v0.2/devices/mine  { [ {"hostname":"board1"},  board1
                                                ....] }
 ----------------------------------------------------------------------------
-{board} allocate  api/v0.2/devices/{board}/assign | "message":"msg" | "Device is assigned to user $USER_NAME"
+{board} allocate   api/v0.2/devices/{board}/assign | "message":"msg" | "Device is assigned to user $USER_NAME"
 ----------------------------------------------------------------------------
-{board} release   api/v0.2/devices/{board}/release | <no more>      | "Device is released"
+{board} release    api/v0.2/devices/{board}/release | <no more>      | "Device is released"
 ----------------------------------------------------------------------------
-{board} info      api/v0.2/devices/{board}  | "DevicePort": ...
+{board} info       api/v0.2/devices/{board}  | "DevicePort": ...
                                               "IOCXConnected": ...
                                               "Zombie": ...
                                                 { "name": "<name>",
@@ -36,15 +36,17 @@ list devices                                           ...] }
                                                 { "SupportedCommands": [][] }
 
 ----------------------------------------------------------------------------
-{board} power status   api/v0.2/devices/{board}/power | "status": "ON" | "OFF" | Devices $DEVICE is Powered $STATUS
+{board} power status   api/v0.2/devices/{board}/power | "data": "ON" or "OFF" | Devices $DEVICE is Powered $STATUS
 ---or is it?-------------------------------------------------------------------------
-{board} power status   api/v0.2/devices/{board}/power/status | "status": "ON" | "OFF" | Devices $DEVICE is Powered $STATUS
+{board} power status   api/v0.2/devices/{board}/power/status | "data": "ON" or "OFF" | Devices $DEVICE is Powered $STATUS
 ----------------------------------------------------------------------------
 {board} power reboot   api/v0.2/devices/{board}/power/reboot | <nothing more> | Devices $DEVICE is Powered reboot (??)
 ----------------------------------------------------------------------------
-{board} power on   api/v0.2/devices/{board}/power/on | <nothing more> | Devices $DEVICE is Powered on
+{board} power on       api/v0.2/devices/{board}/power/on | <nothing more> | Devices $DEVICE is Powered on
 ----------------------------------------------------------------------------
-{board} power off   api/v0.2/devices/{board}/power/off | <nothing more> | Devices $DEVICE is Powered off
+{board} power off      api/v0.2/devices/{board}/power/off | <nothing more> | Devices $DEVICE is Powered off
+
+if "result" != "success", then "message" has a string explaining the problem
 
 
 EBF curl commands:
