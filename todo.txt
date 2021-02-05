@@ -3,15 +3,25 @@ To Do file for labcontrol:
 (See NOTES file for how to restart work)
 
 = to do =
+ - implement 'farm-status' screen to show overview of farm
+   - start with same data as 'farm-status' program
+   - with color coded status elements
+     - uptime for each board
+     - recent/running tests?? (don't tie labcontrol to Jenkins or Fuego)
+ - switch lc to use api paths and REST API (?)
+   + lc list boards - uses api paths and request module
+   + lc <board> power <op> - uses api paths
+   - lc <board> (reserve/allocate) /release
+
+ - switch lcserver.py to eliminate old request API (non-json)
+   - do_put_object
+
  - separate web and raw objects pages
    - top level view is for "web ui" views
      do_show
      do_raw
      do_api
    - raw view is json file object views (mostly for debugging)
-
- - switch lc to use api paths and REST API (?)
-   - lc list-boards - uses api paths and request module
 
  - support reservations
  - support users
@@ -21,12 +31,15 @@ To Do file for labcontrol:
  - allow users register resources
  - allow users to update board info
  - allow users to update resource info
- - support 'lc board bbb reboot'
 
 Things that work:
  + lc list boards - using action api
  + lc list resources - using action api
- + wget -q -O- http://localhost:8000/api/devices - using path api
+ + lc <board> power status - using action api
+ + lc <board> power on - using action api
+ + lc <board> power off - using action api
+ + lc <board> power reboot - using action api
+ + wget -q -O- http://localhost:8000/api/v0.2/devices - using path api
  + wget .../api/devices/bbb
  + wget .../api/devices/bbb/power
  + wget .../api/devices/bbb/power/status
@@ -44,6 +57,7 @@ Things that work:
    - power monitor
    - serial connection
    - network connection
+   - console
  - define object attributes
    - boards: name, lab, description, power-controller
  - define resource verbs
@@ -53,6 +67,16 @@ Things that work:
    - start/stop
  - define labcontrol operations
    - query objects/resources
+ - create better web UI
+   - list of boards
+   - list of my boards
+   - board page:
+     - window for interactive console or terminal
+     - power status that updates autmoatically
+     - window for video from with board
+     - window for video of camera pointed at board
+     - list of power operations
+     - list of connected resources
 
 Postponed for now:
  - add security
@@ -61,18 +85,16 @@ Postponed for now:
 
  - eliminate pages directory
    - don't create tbwiki file for request in do_put_request
- - integrate FuegoShow into fserver.py
-   - is fuego integration being added or removed?
 
 = security notes =
-     - use otp file (lab-<labname>.otp) to authenticate operations
-       - use for only certain operations:
-         - submission of requests, tests, binary-packages
-         - change of state for requests
+  - use otp file (lab-<labname>.otp) to authenticate operations
+    - use for only certain operations:
+      - submission of requests, tests, binary-packages
+      - change of state for requests
        (others operations don't need security, unless server is private)
-         - is this correct
-     - algorithm to use the file is:
-       - on client side:
+         - is this correct?
+   - algorithm to use the file is:
+     - on client side:
          - select offset
            - generate random offset (multiple of 32)
          - seek to that offset

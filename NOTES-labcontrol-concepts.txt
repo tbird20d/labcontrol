@@ -24,7 +24,6 @@ configuration.
 Finally, humans can also access a Web-based user interface to interact
 with the object managed by the server.
 
-
 Labcontrol Objects
 ------------------
 A labcontrol object can be a board, represented by a board file on

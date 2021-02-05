@@ -1,8 +1,15 @@
 Here are some notes about lcserver - the LabControl server implementation.
 
-This server is a CGI script that provides
-point for  objects.  Current objects supported are:
-  * boards and board management processes, hardware and services
+This server is a CGI script that provides a place to store,
+administer and control objects.
+
+Current objects supported are:
+ * boards
+ * resources
+   * power-controller
+   * network-server
+ * requests
+   * test (put-request?)
 
 == programatic interface ==
 [*** Work in Progress ***]
