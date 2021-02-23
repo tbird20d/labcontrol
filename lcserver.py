@@ -28,7 +28,7 @@
 #
 # To do:
 # - convert everything over to the path api
-#   - list devices
+#   + list devices
 # - actions:
 #    - support reserve/release
 # - queries:
@@ -221,6 +221,14 @@ def show_env(req, env, full=0):
         if full or key in env_filter:
             req.html.append("<li>%s=%s" % (key, env[key]))
     req.html.append("</ul>")
+
+def log_env(req):
+    env_keys = req.environ.keys()
+    env_keys.sort()
+
+    log_this("Here is the environment:")
+    for key in env_keys:
+        log_this("%s=%s" % (key, req.environ[key]))
 
 def get_timestamp():
     t = time.time()
@@ -758,6 +766,25 @@ def show_boards(req):
     req.html.append("</table>")
     req.show_footer()
 
+def show_users(req):
+    req.html.append("<H1>Users</h1>")
+    users = get_object_list(req, "user")
+
+    # show a table of attributes
+    req.html.append('<table class="user_table" border="1" style="border-collapse: collapse; padding: 5px" >\n<tr>\n')
+    req.html.append("  <th>Name</th><th>Reservations</th><th>Last access</th>\n</tr>\n")
+    for user in users:
+        req.html.append("<tr>\n")
+        umap = get_object_map(req, "user", user)
+        req.html.append('  <td valign="top" align="center" style="padding: 5px"><h3>%(name)s</h3></td>\n' % umap)
+        req.html.append('  <td valign="top" style="padding: 5px"><i>Not implemented yet</i></td>\n')
+        req.html.append('  <td valign="top" style="padding: 5px"><i>Not implemented yet</i></td>\n')
+        req.html.append("</tr>\n")
+
+    req.html.append("</table>")
+    req.show_footer()
+
+
 # show the web ui for objects on the server
 # this is the main human interface to the server
 def do_show(req):
@@ -765,7 +792,7 @@ def do_show(req):
     #log_this("in do_show, req.page_name='%s'\n" % req.page_name)
     #req.html.append("req.page_name='%s' <br><br>" % req.page_name)
 
-    if req.page_name not in ["boards", "resources", "requests", "logs", "main"]:
+    if req.page_name not in ["boards", "resources", "users", "requests", "logs", "main"]:
         # FIXTHIS - check for object name here, and show individual object
         #   status and control interface
         # it should be in req.obj_path
@@ -774,6 +801,8 @@ def do_show(req):
     else:
         if req.page_name=="boards":
             show_boards(req)
+        elif req.page_name == "users":
+            show_users(req)
         elif req.page_name == "resources":
             req.html.append("<H1>List of resources</h1>")
             req.html.append(file_list_html(req, "data", "resources", ".json"))
@@ -793,6 +822,7 @@ Here are links to the different Lab Control objects:<br>
 <ul>
 <li><a href="%(url_base)s/boards">Boards</a></li>
 <li><a href="%(url_base)s/resources">Resources</a></li>
+<li><a href="%(url_base)s/users">Users</a></li>
 <li><a href="%(url_base)s/requests">Requests</a></li>
 <li><a href="%(url_base)s/logs">Logs</a></li>
 </ul>
@@ -811,7 +841,7 @@ def do_raw(req):
     log_this("in do_raw, req.page_name='%s'\n" % req.page_name)
     req.html.append("req.page_name='%s' <br><br>" % req.page_name)
 
-    if req.page_name not in ["boards", "resources", "requests", "logs", "main"]:
+    if req.page_name not in ["boards", "resources", "users", "requests", "logs", "main"]:
         title = "Error - unknown object type '%s'" % req.page_name
         req.add_to_message(title)
     else:
@@ -821,6 +851,9 @@ def do_raw(req):
         elif req.page_name == "resources":
             req.html.append("<H1>List of resources</h1>")
             req.html.append(file_list_html(req, "data", "resources", ".json"))
+        elif req.page_name == "users":
+            req.html.append("<H1>List of users</h1>")
+            req.html.append(file_list_html(req, "data", "users", ".json"))
         elif req.page_name == "requests":
             req.html.append("<H1>Table of requests</H1>")
             show_request_table(req)
@@ -837,6 +870,7 @@ Here are links to the different Lab Control objects:<br>
 <ul>
 <li><a href="%(url_base)s/raw/boards">Boards</a></li>
 <li><a href="%(url_base)s/raw/resources">Resources</a></li>
+<li><a href="%(url_base)s/raw/users">Users</a></li>
 <li><a href="%(url_base)s/raw/requests">Requests</a></li>
 <li><a href="%(url_base)s/raw/logs">Logs</a></li>
 </ul>
@@ -1097,6 +1131,8 @@ def do_api(req):
 def handle_request(environ, req):
     req.environ = environ
 
+    #log_env(req)
+
     # determine action, if any
     action = req.form.getfirst("action", "show")
     #req.add_to_message('action="%s"<br>' % action)
@@ -1114,10 +1150,11 @@ def handle_request(environ, req):
         page_name = "main"
     req.set_page_name(page_name)
 
-    req.add_to_message("PATH_INFO=%s" % environ.get("PATH_INFO"))
-    req.add_to_message("path_info=%s" % path_info)
-    req.add_to_message("obj_path=%s" % obj_path)
-    req.add_to_message("page_name=%s" % page_name)
+    #uncomment these to debug path stuff
+    #req.add_to_message("PATH_INFO=%s" % environ.get("PATH_INFO"))
+    #req.add_to_message("path_info=%s" % path_info)
+    #req.add_to_message("obj_path=%s" % obj_path)
+    #req.add_to_message("page_name=%s" % page_name)
 
     # see if /api is in path
     if obj_path.startswith("/api"):
@@ -1128,14 +1165,17 @@ def handle_request(environ, req):
         action = "raw"
         req.obj_path = obj_path[4:]
 
-    req.add_to_message("action=%s" % action)
+    #req.add_to_message("action=%s" % action)
 
     # NOTE: uncomment this when you get a 500 error
     #req.show_header('Debug')
     #show_env(req, environ)
     #show_env(req, environ, True)
-    log_this("in main request loop: action='%s', page_name='%s'<br>" % (action, page_name))
+    log_this("in handle_request: action='%s', page_name='%s'" % (action, page_name))
     #req.add_to_message("in main request loop: action='%s'<br>" % action)
+
+    AUTH_TYPE=req.environ.get("AUTH_TYPE", "none")
+    log_this("in handle_request: AUTH_TYPE='%s'" % AUTH_TYPE)
 
     # perform action
     action_list = ["show", "api", "raw",
