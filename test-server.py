@@ -173,7 +173,12 @@ class fServerRequestHandler(CGIHTTPServer.CGIHTTPRequestHandler):
         if host != self.client_address[0]:
             env['REMOTE_HOST'] = host
         env['REMOTE_ADDR'] = self.client_address[0]
-        # XXX AUTH_TYPE
+
+        authorization = self.headers.getheader("authorization")
+        if authorization:
+            env['HTTP_AUTHORIZATION'] = authorization
+            env['AUTH_TYPE'] = authorization.split()[0]
+
         # XXX REMOTE_USER
         # XXX REMOTE_IDENT
         if self.headers.typeheader is None:
