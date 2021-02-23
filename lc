@@ -224,6 +224,7 @@ class config_class:
         # set values from conf_map
         self.host = conf_map.get("host", "localhost")
         self.user = conf_map.get("user", "lc_user")
+        self.auth_token = conf_map.get("token", "abcd01234")
         self.server = conf_map.get("server", "localhost:8000")
         self.default_board = conf_map.get("default_board", "")
         self.SERVER_URL_BASE = "http://%s/lcserver.py/?action=" % self.server
@@ -689,7 +690,9 @@ def get_objects_from_server(conf, obj_type, options):
             error_out("Request query criteria must be one of %s" % valid_fields)
         data[field] = value
 
-    resp = requests.post(url, data=data)
+    headers = { "Authorization": "token " + token }
+
+    resp = requests.post(url, headers=headers, data=data)
     result, content = resp.text.split('\n', 1)
     if result != RSLT_OK:
         error_out("Can't read %ss from server\nServer returned message: %s" % (obj_type, content))
@@ -704,7 +707,9 @@ def get_objects_from_server(conf, obj_type, options):
 def get_objects_via_api(conf, obj_type, options):
     url = conf.API_URL_BASE+"api/v0.2/" + obj_type
 
-    resp = requests.get(url)
+    headers = { "Authorization": "token " + conf.auth_token }
+
+    resp = requests.get(url, headers=headers)
     if resp.status_code != 200:
         error_out("Cannot read %s from server" % obj_type)
 
@@ -727,7 +732,9 @@ def get_objects_via_api(conf, obj_type, options):
 def get_boards_via_api(conf, options):
     url = conf.API_URL_BASE+"api/devices"
 
-    resp = requests.get(url)
+    headers = { "Authorization": "token " + conf.auth_token }
+
+    resp = requests.get(url, headers=headers)
     if resp.status_code != 200:
         error_out("Cannot read boards from server")
 
@@ -800,7 +807,9 @@ def do_power(conf, options):
 
     url = conf.API_URL_BASE+"api/v0.2/devices/%s/power/%s" % (board, operation)
 
-    resp = requests.get(url)
+    headers = { "Authorization": "token " + conf.auth_token }
+
+    resp = requests.get(url, headers=headers)
     if resp.status_code != 200:
         error_out("Cannot perform power %s operation on server" % operation )
 
