@@ -8,6 +8,16 @@ To Do file for labcontrol:
    - with color coded status elements
      - uptime for each board
      - recent/running tests?? (don't tie labcontrol to Jenkins or Fuego)
+ - add authentication token api
+   - OUTPUT=$(curl -s -k --location --request POST "$SERVER_URL/api/v0.2/token/"  --header 'Content-Type: application/json' --data-raw '{"username":"'"$USER_NAME"'" , "password":"'"$PASSWORD"'"}')
+      AUTH_TOKEN=$(echo $OUTPUT|jq -r .data.token)
+   - RESULT=$(echo $OUTPUT|jq -r .result)
+
+   - OUTPUT=$(curl -s -k --location --request GET "$SERVER_URL/api/v0.2/devices/mine/"  --header 'Authorization: token '$AUTH_TOKEN'')
+      - how to do this in the lc client:
+        - requests.post(url, headers={'Content-type':'application/json',
+            'Authorization': 'token %s' % access_token})
+
  - switch lc to use api paths and REST API (?)
    + lc list boards - uses api paths and request module
    + lc <board> power <op> - uses api paths
