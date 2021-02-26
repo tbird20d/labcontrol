@@ -906,13 +906,7 @@ def get_object_list(req, obj_type):
 
 def return_api_object_list(req, obj_type):
     obj_list = get_object_list(req, obj_type)
-
-    result_obj_list = []
-    for obj_name in obj_list:
-        result_obj_list.append( {"hostname": obj_name} )
-
-    # this is wrong, but make it match ebf for now
-    req.send_api_list_response(result_obj_list)
+    req.send_api_list_response(obj_list)
 
 def get_object_data(req, obj_type, obj_name):
     filename = obj_type + "-" + obj_name + ".json"

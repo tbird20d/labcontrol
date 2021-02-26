@@ -722,28 +722,7 @@ def get_objects_via_api(conf, obj_type, options):
             reason = "for unknown reasons"
         error_out("Could not get %s from server: %s" % (obj_type, reason))
 
-    obj_list = []
-    for obj in resp_data:
-        obj_list.append(obj["hostname"])
-
-    return obj_list
-
-# returns a list of board names
-def get_boards_via_api(conf, options):
-    url = conf.API_URL_BASE+"api/devices"
-
-    headers = { "Authorization": "token " + conf.auth_token }
-
-    resp = requests.get(url, headers=headers)
-    if resp.status_code != 200:
-        error_out("Cannot read boards from server")
-
-    obj_list = resp.json()
-    board_list = []
-    for obj in obj_list:
-        board_list.append(obj["hostname"])
-
-    return board_list
+    return resp_data
 
 def list_objects_via_api(conf, obj_type, options):
     global quiet
