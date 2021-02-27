@@ -41,7 +41,7 @@ glob = None
 # MAJOR, MINOR, REVISION, extra_revision
 # extra_revision, if non-empty, should start with a dash
 # (e.g. "-next", "-rc1")
-VERSION = (0, 2, 0, "")
+VERSION = (0, 3, 0, "")
 
 # this is from the REST API standard
 RSLT_OK = "success"
@@ -122,6 +122,37 @@ The result is a list of boards that match the criteria.  If no
 criteria are specified, all boards are listed.
 """),
 
+"allocate": ("Reserve a board for my use.",
+    """Usage: lc {board} allocate
+  Reserve a board for my use.  This assigns a board
+  for use with my user account, so that my account has
+  exclusive access for testing and manipulating the board.
+
+  This is the same as the 'reserve' command, and is included
+  for compatibility with 'ebf'.
+"""),
+
+"reserve": ("Reserve a board for my use.",
+    """Usage: lc {board} reserve
+  Reserve a board for my use.  This assigns a board
+  for use with my user account, so that my account has
+  exclusive access for testing and manipulating the board.
+
+  This is the same as the 'allocate' command.
+"""),
+
+"release": ("Release a board reservation.",
+    """Usage: lc {board} release
+  Release a board that was reserved for my use.
+
+  Options:
+    force      Release a board that was reserved by another user.
+               By default, the 'release' command will only release
+               a board that the current user has reserved.  This
+               option is used to force the release of a reservation
+               by another user.
+"""),
+
 "power": ("Perform a power operation on a board.",
     """Usage: lc {board} power {operation}
   Perform a power operation on a board.
@@ -159,7 +190,6 @@ Put a request on the server to perform the indicated operation.
 
   ....
 """),
-
 
 "rm-request": ("Remove a operation request.",
     """Usage: lc rm-request <request_id>
@@ -825,6 +855,81 @@ def do_power(conf, options):
     # but be thorough in error handling
     error_out("Invalid operation '%s' for power command" % operation)
 
+def do_reserve(conf, options, cmd='reserve'):
+    # board is a required first argument
+    try:
+        board = options[0]
+        del options[0]
+    except:
+        error_out("No board specified for %s operation\n" % cmd + \
+                "Please specify a board from 'lc list boards'.")
+
+    url = conf.API_URL_BASE+"api/v0.2/devices/%s/assign" % board
+
+    headers = { "Authorization": "token " + conf.auth_token }
+
+    resp = requests.get(url, headers=headers)
+    if resp.status_code != 200:
+        error_out("Cannot perform %s operation on server" % cmd )
+
+    resp_data = resp.json()
+
+    try:
+        result = resp_data["result"]
+    except:
+        error_out("Malformed response from server. Missing 'result'. resp=%s" % resp_data)
+
+    if result != RSLT_OK:
+        # print error
+        try:
+            reason = resp_data["message"]
+        except:
+            reason = "for unknown reasons"
+        error_out("%s" % reason)
+
+    # operation was performed, result was "success"
+    print("Device is assigned to user %s" % conf.user)
+    return
+
+def do_release(conf, options):
+    # board is a required first argument
+    try:
+        board = options[0]
+        del options[0]
+    except:
+        error_out("No board specified for release operation\n" + \
+            "Please specify a board from 'lc list boards'.")
+
+    url = conf.API_URL_BASE+"api/v0.2/devices/%s/release" % board
+
+    if len(options) and options[0]=="force":
+        url += "/force"
+
+    headers = { "Authorization": "token " + conf.auth_token }
+
+    resp = requests.get(url, headers=headers)
+    if resp.status_code != 200:
+        error_out("Cannot perform release operation on server")
+
+    resp_data = resp.json()
+
+    try:
+        result = resp_data["result"]
+    except:
+        error_out("Malformed response from server. Missing 'result'. resp=%s" % resp_data)
+
+    if result != RSLT_OK:
+        # print error
+        try:
+            reason = resp_data["message"]
+        except:
+            reason = "Could not do 'assign' operation, for unknown reasons"
+        error_out("%s" % reason)
+
+    # operation was performed, result was "success"
+    print('Device "%s" is released and available to use.' % board)
+    return
+
 # returns dictionary for the request
 def get_request(conf, req_id):
     url = conf.SERVER_URL_BASE+"get_request"
@@ -1376,7 +1481,7 @@ def main():
                 continue
 
             # support "lc help <command>" and "lc run reboot"
-            # -- where arg has same name as a legal ttc command
+            # -- where arg has same name as a legal lc command
             if command:
                 # this is an argument to the command
                 # which was already found
@@ -1429,6 +1534,18 @@ def main():
         do_power(conf, options)
         sys.exit(0)
 
+    if command in ["allocate", "reserve"]:
+        do_reserve(conf, options, command)
+        sys.exit(0)
+
+    if command == "release":
+        do_release(conf, options)
+        sys.exit(0)
+
+    if command == "status":
+        do_status(conf, options)
+        sys.exit(0)
+
     # FIXTHIS - remove or finish these routines
     if command == "put-request":
         do_put_request(conf, options)
@@ -1439,10 +1556,6 @@ def main():
     if command == "add-resource":
         do_add_resource(conf, options)
         sys.exit(0)
-
-    if command == "reserve":
-        rcode = do_reserve(conf, options)
-        sys.exit(rcode)
 
     if command == "query-request":
         do_query_request(conf, options)

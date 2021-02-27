@@ -3,6 +3,7 @@ To Do file for labcontrol:
 (See NOTES file for how to restart work)
 
 = to do =
+ - implement support for /api/v0.2/devices/mine
  - implement 'farm-status' screen to show overview of farm
    - start with same data as 'farm-status' program
    - with color coded status elements

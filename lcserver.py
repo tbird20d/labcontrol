@@ -30,7 +30,8 @@
 # - convert everything over to the path api
 #   + list devices
 # - actions:
-#    - support reserve/release
+#    + support assign, release and release/force (lc allocate/release)
+#    - support api/v0.2/devices/mine (lc mydevices)
 # - queries:
 #   - handle regex wildcards instead of just start/end wildcards
 # - objects:
@@ -115,6 +116,7 @@ class req_class:
         self.html = []
         self.api_path = ""
         self.obj_path = ""
+        self.user = None
 
     def set_page_name(self, page_name):
         page_name = re.sub(" ","_",page_name)
@@ -181,15 +183,21 @@ class req_class:
         self.html.append(data)
 
     # API responses: return python dictionary as json data
-    def send_api_response(self, result, data):
-        import json
-
+    def send_api_response(self, result, data = {}):
         data["result"] = result
+
+        import json
         json_data = json.dumps(data, sort_keys=True, indent=4,
             separators=(',', ': '))
 
+        # uncomment this to see the data being sent back
+        #log_this("response json_data=%s" % json_data)
+
         self.html.append("Content-type: text/plain\n\n")
         self.html.append(json_data)
+
+    def send_api_response_msg(self, result, msg):
+        self.send_api_response(result, { "message": msg })
 
     def send_api_list_response(self, data):
         import json
@@ -200,6 +208,55 @@ class req_class:
         self.html.append("Content-type: text/plain\n\n")
         self.html.append(json_data)
 
+    def get_user(self):
+        # returns valid user name or None
+        user = None
+
+        AUTH_TYPE = self.environ.get("AUTH_TYPE", "none")
+        if AUTH_TYPE != "token":
+            return user
+        http_auth = self.environ.get("HTTP_AUTHORIZATION", "nobody")
+        if http_auth == "nobody":
+            return user
+
+        # scan user files for matching authentication token
+        token = http_auth.split()[1]
+        if token == "not-a-valid-token":
+            return user
+
+        user_dir = self.config.data_dir + "/users"
+        try:
+            user_files = os.listdir( user_dir )
+        except:
+            log_this("Error: could not read user files from " + user_dir)
+            return user
+
+        for ufile in user_files:
+            upath = user_dir + "/" + ufile
+            try:
+                ufd = open(upath)
+            except:
+                log_this("Error opening upath %s" % upath)
+                return user
+
+            import json
+            try:
+                udata = json.load(ufd)
+            except:
+                ufd.close()
+                log_this("Error reading json data from file %s" % upath)
+                return user
+
+            #log_this("in get_user: udata= %s" % udata)
+            if token == udata.get("auth_token", "not-a-valid-token"):
+                try:
+                    user = udata["name"]
+                except:
+                    log_this("Error: missing 'name' field in user data file %s, in req.get_user()" % upath)
+                break
+
+        log_this("user=%s" % str(user))
+        return user
 
 # end of req_class
 #######################
@@ -949,6 +1006,25 @@ def get_object_map(req, obj_type, obj_name):
 
     return obj_map
 
+def save_object_data(req, obj_type, obj_name, obj_data):
+    filename = obj_type + "-" + obj_name + ".json"
+    file_path = "%s/%ss/%s-%s.json" %  (req.config.data_dir, obj_type, obj_type, obj_name)
+
+    #log_this("in save_object_data: obj_data=%s" % obj_data)
+
+    import json
+    json_data = json.dumps(obj_data, sort_keys=True, indent=4,
+        separators=(',', ': '))
+
+    try:
+        ofd = open(file_path, "w")
+        ofd.write(json_data)
+        ofd.close()
+    except:
+        log_this("Error: cannot write data to file %s" % file_path)
+
+    return
+
 def get_connected_resource(req, board_map, resource_type):
     # look up connected resource type in board map
     resource = board_map.get(resource_type, None)
@@ -998,27 +1074,27 @@ def exec_command(req, board_map, resource_map, res_cmd):
 # execute a resource command
 def return_exec_command(req, board_map, resource_map, res_cmd):
     (result, msg) = exec_command(req, board_map, resource_map, res_cmd)
-    req.send_api_response(result, {"message": msg})
+    req.send_api_response_msg(result, msg)
 
 # rest is a list of the rest of the path
 def return_api_board_action(req, board, action, rest):
     boards = get_object_list(req, "board")
     if board not in boards:
         msg = "Could not find board '%s' registered with server" % board
-        req.send_api_response(RSLT_FAIL, {"message": msg})
+        req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
     board_map = get_object_map(req, "board", board)
     if not board_map:
         msg = "Problem loading data for board '%s'" % board
-        req.send_api_response(RSLT_FAIL, {"message": msg})
+        req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
     if action == "power":
         pdu_map = get_connected_resource(req, board_map, "power-controller")
         if not pdu_map:
             msg = "No power controller resource found for board %s" % board
-            req.send_api_response(RSLT_FAIL, {"message": msg})
+            req.send_api_response_msg(RSLT_FAIL,  msg)
             return
 
         if not rest or rest[0] == "status":
@@ -1027,18 +1103,75 @@ def return_api_board_action(req, board, action, rest):
             if result==RSLT_OK:
                 req.send_api_response(result, {"data": msg})
             else:
-                req.send_api_response(result, {"message": msg})
+                req.send_api_response_msg(result, msg)
             return
         elif rest[0] in ["on", "off", "reboot"]:
             return_exec_command(req, board_map, pdu_map, rest[0])
             return
         else:
             msg = "power action '%s' not supported" % rest[0]
-            req.send_api_response(RSLT_FAIL, {"message": msg} )
+            req.send_api_response_msg(RSLT_FAIL, msg)
+            return
+    elif action == "assign":
+        # get current user, and add reservation for board to user
+        user = req.get_user()
+        assigned_to = board_map.get("AssignedTo", "nobody")
+        if assigned_to != "nobody":
+            if user == assigned_to:
+                msg = "Device is already assigned to you"
+            else:
+                msg = "Device is already assigned to %s" % assigned_to
+            req.send_api_response_msg(RSLT_FAIL, msg)
             return
 
+        if user and user != "nobody":
+            board_map["AssignedTo"] = user
+        else:
+            msg = "Cannot determine user for operation"
+            req.send_api_response_msg(RSLT_FAIL, msg)
+            return
+
+        # save data back to json file
+        save_object_data(req, "board", board, board_map)
+
+        req.send_api_response(RSLT_OK)
+        return
+
+    elif action == "release":
+        # get current user, and remove reservation for board
+        user = req.get_user()
+        assigned_to = board_map.get("AssignedTo", "nobody")
+        if assigned_to == "nobody":
+            msg = "Device is already free and available for allocation."
+            req.send_api_response_msg(RSLT_FAIL, msg)
+            return
+
+        if not user or user == "nobody":
+            msg = "Cannot determine user for operation"
+            req.send_api_response_msg(RSLT_FAIL, msg)
+            return
+
+        if rest and rest[0] == "force":
+            force = True
+        else:
+            force = False
+
+        if not force:
+            if user != assigned_to:
+                msg = "Device is not assigned to you. It is assigned to '%s'.\nCannot release it. (try using 'force' option)" % assigned_to
+                req.send_api_response_msg(RSLT_FAIL, msg)
+                return
+
+        board_map["AssignedTo"] = "nobody"
+
+        # save data back to json file
+        save_object_data(req, "board", board, board_map)
+
+        req.send_api_response(RSLT_OK)
+        return
+
     msg = "action '%s' not supported (rest='%s')" % (action, rest)
-    req.send_api_response(RSLT_FAIL, {"message": msg})
+    req.send_api_response_msg(RSLT_FAIL, msg)
 
 # api paths are:
 #  lc/ebf command -> api path
@@ -1061,20 +1194,21 @@ def do_api(req):
     #req.html.append("parts=%s" % parts)
     log_this("parts=%s" % parts)
 
-    # check API version later.  For now, just ignore it
+    # check API version.  Currently, we only support v0.2
     if parts[0] == "v0.2":
         del(parts[0])
+    else:
+        req.send_api_response_msg(RSLT_FAIL, "Unsupported api '%s'" % parts[0])
 
     if not parts:
         msg = "Invalid empty path after /api"
-        req.send_api_response(RSLT_FAIL, { "message": msg } )
+        req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
     if parts[0] == "devices":
         if len(parts) == 1:
             # handle /api/devices - list devices
             # list devices (boards)
-            log_this("in do_api - calling return_api_object_list")
             return_api_object_list(req, "board")
             return
         else:
@@ -1105,7 +1239,7 @@ def do_api(req):
                 action = parts[2]
                 rest = parts[3:]
                 msg = "Unsupported elements '%s/%s' after /api/resources" % (action, "/".join(rest))
-                req.send_api_response(RSLT_FAIL, { "message": msg } )
+                req.send_api_response_msg(RSLT_FAIL, msg)
                 return
     elif parts[0] == "requests":
         if len(parts) == 1:
@@ -1115,11 +1249,11 @@ def do_api(req):
         else:
             rest = parts[2:]
             msg = "Unsupported elements '%s' after /api/requests" % ("/".join(rest))
-            req.send_api_response(RSLT_FAIL, { "message": msg } )
+            req.send_api_response_msg(RSLT_FAIL, msg)
             return
     else:
         msg = "Unsupported element '%s' after /api/" % parts[0]
-        req.send_api_response(RSLT_FAIL, { "message": msg } )
+        req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
 def handle_request(environ, req):
@@ -1169,7 +1303,9 @@ def handle_request(environ, req):
     #req.add_to_message("in main request loop: action='%s'<br>" % action)
 
     AUTH_TYPE=req.environ.get("AUTH_TYPE", "none")
-    log_this("in handle_request: AUTH_TYPE='%s'" % AUTH_TYPE)
+    #log_this("in handle_request: AUTH_TYPE='%s'" % AUTH_TYPE)
+
+    # FIXTHIS - look up user by authentication token
 
     # perform action
     action_list = ["show", "api", "raw",
@@ -1216,6 +1352,8 @@ def cgi_main():
         tb_msg = traceback.format_exc()
         req.html.append("traceback=%s" % tb_msg)
         req.html.append("</pre>")
+        log_this("LabControl Server Error")
+        log_this("traceback=%s" % tb_msg)
 
     # output html to stdout
     for line in req.html:
