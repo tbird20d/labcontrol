@@ -59,6 +59,10 @@ import tempfile
 #import json
 #import yaml
 
+debug_api_response = False
+# uncomment this to dump response data to the log file
+#debug_api_response = True
+
 try:
     from subprocess import getstatusoutput
 except:
@@ -190,8 +194,8 @@ class req_class:
         json_data = json.dumps(data, sort_keys=True, indent=4,
             separators=(',', ': '))
 
-        # uncomment this to see the data being sent back
-        #log_this("response json_data=%s" % json_data)
+        if debug_api_response:
+            log_this("response json_data=%s" % json_data)
 
         self.html.append("Content-type: text/plain\n\n")
         self.html.append(json_data)
@@ -970,17 +974,15 @@ def return_api_object_list(req, obj_type):
     req.send_api_list_response(obj_list)
 
 # read data from json file (from data/{obj_type}s/{obj_type}-{obj_name}.json)
+# log any errors encountered
 def get_object_data(req, obj_type, obj_name):
     filename = obj_type + "-" + obj_name + ".json"
     file_path = "%s/%ss/%s-%s.json" %  (req.config.data_dir, obj_type, obj_type, obj_name)
 
-    #msg = "in get_object_data - file_path is '%s'" % file_path
-    #req.send_response("INFO", msg)
-
     if not os.path.isfile(file_path):
         msg = "%s object '%s' in not recognized by the server" % (obj_type, obj_name)
         msg += "- file_path was '%s'" % file_path
-        req.send_response(RSLT_FAIL, msg)
+        log_this(msg)
         return {}
 
     data = ""
@@ -989,7 +991,29 @@ def get_object_data(req, obj_type, obj_name):
     except:
         msg = "Could not retrieve information for %s '%s'" % (obj_type, obj_name)
         msg += "- file_path was '%s'" % file_path
-        req.send_response(RSLT_FAIL, msg)
+        log_this(msg)
+        return {}
+
+    return data
+
+# get object data from file, return api response on error
+def get_api_object_data(req, obj_type, obj_name):
+    filename = obj_type + "-" + obj_name + ".json"
+    file_path = "%s/%ss/%s-%s.json" %  (req.config.data_dir, obj_type, obj_type, obj_name)
+
+    if not os.path.isfile(file_path):
+        msg = "%s object '%s' in not recognized by the server" % (obj_type, obj_name)
+        msg += "- file_path was '%s'" % file_path
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return {}
+
+    data = ""
+    try:
+        data = open(file_path, "r").read()
+    except:
+        msg = "Could not retrieve information for %s '%s'" % (obj_type, obj_name)
+        msg += "- file_path was '%s'" % file_path
+        req.send_api_response_msg(RSLT_FAIL, msg)
         return {}
 
     return data
@@ -1003,6 +1027,8 @@ def return_my_board_list(req):
     my_boards =  []
     for board in boards:
         board_map = get_object_map(req, "board", board)
+        if not board_map:
+            continue
         assigned_to = board_map.get("AssignedTo", "nobody")
         if user == assigned_to:
             my_boards.append(board)
@@ -1021,11 +1047,25 @@ def get_object_map(req, obj_type, obj_name):
     except:
         msg = "Invalid json detected in %s '%s'" % (obj_type, obj_name)
         msg += "\njson='%s'" % data
+        log_this(msg)
+        return {}
 
-# FIXTHIS - get_object_map is called from both show and path api paths
-# but it sends a text response if the object json is messed up
+    return obj_map
 
-        req.send_response(RSLT_FAIL, msg)
+# return python data structure from json file
+#  (from data/{obj_type}s/{obj_type}-{obj_name}.json)
+def get_api_object_map(req, obj_type, obj_name):
+    data = get_api_object_data(req, obj_type, obj_name)
+    if not data:
+        return {}
+    try:
+        import json
+        obj_map = json.loads(data)
+    except:
+        msg = "Invalid json detected in %s '%s'" % (obj_type, obj_name)
+        msg += "\njson='%s'" % data
+
+        req.send_api_response_msg(RSLT_FAIL, msg)
         return {}
 
     return obj_map
@@ -1062,9 +1102,12 @@ def get_connected_resource(req, board_map, resource_type):
 
 def return_api_object_data(req, obj_type, obj_name):
     # do default action for an object - return json file data (as a string)
-    data = get_object_data(req, obj_type, obj_name)
+    data = get_api_object_map(req, obj_type, obj_name)
     if not data:
         return
+
+    # perform any data transformations required for compliance with spec
+    # FIXTHIS - should manage this schema with TimeSys
 
     req.send_api_response(RSLT_OK, data)
 
@@ -1242,7 +1285,7 @@ def do_api(req):
                 return
 
             if len(parts) == 2:
-                # handle api/device/{board}
+                # handle api/devices/{board}
                 return_api_object_data(req, "board", board)
                 return
             else:
