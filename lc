@@ -14,9 +14,6 @@
 # SPDX-License-Identifier:  MIT
 #
 # To Do:
-#  - convert to path api for operations
-#  - use separate verb/object forms for operations (like ebf)
-#    - 'lc bbb power reboot' instead of 'lc bbb power-cycle'
 #
 
 # only import enough to get to container dispatcher in main()
@@ -40,7 +37,7 @@ glob = None
 # MAJOR, MINOR, REVISION, extra_revision
 # extra_revision, if non-empty, should start with a dash
 # (e.g. "-next", "-rc1")
-VERSION = (0, 3, 0, "")
+VERSION = (0, 4, 0, "")
 
 # this is from the REST API standard
 RSLT_OK = "success"
@@ -197,6 +194,11 @@ Put a request on the server to perform the indicated operation.
   ....
 """),
 
+"status": ("Show status of a board.",
+        """Usage: lc <board> status
+
+Show the reservation status for a board."""),
+
 "rm-request": ("Remove a operation request.",
     """Usage: lc rm-request <request_id>
 
@@ -204,7 +206,7 @@ The request_id is a request identifier on the server (which can be queried
 for with 'lc list requests')."""),
 
 "reserve": ("Reserve a board or resource for use.",
-    """Usage: lc reserve [-f] [board] <name>
+    """Usage: lc [board] reserve [-f] <name>
 
 Reserve the named resource.  Currently, only boards may be reserved.
 A message and the exit code indicate whether the resource is
@@ -213,18 +215,17 @@ already reserved.
 If -f is specified, then the reservation is 'forced' and any
 current reservation is overridden with the new one.
 
-   ex: lc reserve board beaglebone"""),
+   ex: lc beablebone reserve"""),
 
 "release": ("Release a reservation on a board or resource.",
-    """Usage: lc release [board] <name>
+    """Usage: lc [board] release
 
 Release the named board or resource.
 A message and the exit code indicate if the resource was released.
 
-   ex: lc release board beaglebone"""),
+   ex: lc beaglebone release"""),
 
 }
-
 
 # here's a helper routine to print a variable with it's name and value
 def dvar(name):
@@ -799,7 +800,6 @@ def do_list(conf, options):
     list_objects_via_api(conf, obj_type, options)
 
 def do_list_mydevices(conf, options):
-    # FIXTHIS - use direct api here
     url = conf.API_URL_BASE+"api/v0.2/devices/mine"
 
     headers = { "Authorization": "token " + conf.auth_token }
@@ -1313,24 +1313,50 @@ def do_query_board(bvars, options):
                 print " "*28 + line
     return
 
+# show the status of a board
+def do_status(conf, options):
+    board = options[0]
+    del(options[0])
 
-def do_status(bmap):
-    board = bmap["board"]
+    url = conf.API_URL_BASE+"api/v0.2/devices/" + board
+
+    headers = { "Authorization": "token " + conf.auth_token }
+
+    resp = requests.get(url, headers=headers)
+    if resp.status_code != 200:
+        error_out("Cannot read %s from server" % obj_type)
+
+    try:
+        resp_data = resp.json()
+    except:
+        error_out("Could not parse data from server")
+
+    try:
+        result = resp_data["result"]
+    except:
+        error_out("Can not determine result from server")
+
+    if result != RSLT_OK:
+        try:
+            reason = resp_data["message"]
+        except:
+            reason = "Unknown failure from server"
+        error_out(reason)
 
     print "Status for board: %s" % board
 
     # show who is currently using board
-    res = get_reservation(bmap)
-    if res[0]:
-        print "User %s currently has '%s' reserved." % (res[0], board)
-        print "Reservation began at: %s" % res[1]
+    assigned_to = resp_data.get("AssignedTo", "nobody")
+    if assigned_to != "nobody":
+        print 'Board "%s" is assigned to user "%s".' % (board, assigned_to)
     else:
-        print "Board '%s' is not reserved." % (board)
+        print 'Board "%s" is not reserved.' % (board)
 
-    # FIXTHIS - do_status should report some board state data (power, etc.):
+    # FIXTHIS - do_status could report other board status data (power, etc.):
     #   board power-on status
     #   whether board is running linux (pingable?)
     #   future reservations for board
+
 
 ## do_set_env
 # set the vars from bmap into the current environment
