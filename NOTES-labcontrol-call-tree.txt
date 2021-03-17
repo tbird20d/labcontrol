@@ -1,0 +1,133 @@
+
+
+cgi_main():
+  set form, req = req_class()
+  handle_request():
+    set action
+    call action_function:
+      do_show
+      do_api
+      do_raw
+      do_add_board
+      do_add_resource
+      do_put_request
+      do_query_objects
+      do_get_board
+      do_get_resource
+      do_get_request
+      do_get_board
+      do_remove_board
+      do_remove_resource
+      do_remove_request
+      do_update_board
+      do_update_request
+      do_put_log
+      do_get_log
+
+== HTML routines ==
+do_show():
+  req.show_header()
+  uses req.page_name to multiplex:
+  show_boards()
+    get_object_list() - get list of objects of an indicated type
+    get_object_map() - get python struct from json file
+      get_object_data() - get data from json file
+    show_board_info()
+    req.show_footer()
+
+  file_list_html()
+  show_users()
+    get_object_list()
+    get_object_map()
+    req.show_footer()
+
+  show_request_table()
+    os.listdir()
+    json.load
+
+  req.show_footer
+
+== API routines ==
+do_api():
+  req.send_api_response_msg()
+
+  return_api_object_list()
+    get_object_list()
+    req.send_api_list_response()
+
+  return_api_object_data()
+    get_object_data()
+    req.send_api_response()
+
+  return_api_board_action()
+    get_object_list()
+    get_object_map()
+    multiplex on the action:
+      get_connected_resource()
+        get_object_map()
+      get_power_status()
+      return_exec_command()
+      req.send_api_response_msg()
+
+   req.get_user()
+   save_object_data()
+
+== Global function list ==
+def log_this(msg):
+
+class config_class:
+    def __init__(self):
+    def __getitem__(self, name):
+
+class req_class:
+    def __init__(self, config, form):
+    def set_page_name(self, page_name):
+    def page_filename(self):
+    def read_page(self, page_name=""):
+    def make_url(self, page_name):
+    def html_escape(self, str):
+    def add_to_message(self, msg):
+    def add_msg_and_traceback(self, msg):
+    def show_message(self):
+    def show_header(self, title):
+    def show_footer(self):
+    def html_error(self, msg):
+    def send_response(self, result, data):
+    def send_api_response(self, result, data = {}):
+    def send_api_response_msg(self, result, msg):
+    def send_api_list_response(self, data):
+    def get_user(self):
+
+def show_env(req, env, full=0):
+def log_env(req):
+def get_timestamp():
+def save_file(req, file_field, upload_dir):
+def do_put_object(req, obj_type):
+def do_update_object(req, obj_type):
+def item_match(pattern, item):
+def do_query_objects(req):
+def old_do_query_requests(req):
+def do_get_request(req):
+def do_remove_object(req, obj_type):
+def file_list_html(req, file_type, subdir, extension):
+def show_request_table(req):
+def show_board_info(req, bmap):
+def get_power_status(req, bmap):
+def show_boards(req):
+def show_users(req):
+def do_show(req):
+def do_raw(req):
+def get_object_list(req, obj_type):
+def return_api_object_list(req, obj_type):
+def get_object_data(req, obj_type, obj_name):
+def get_object_map(req, obj_type, obj_name):
+def save_object_data(req, obj_type, obj_name, obj_data):
+def get_connected_resource(req, board_map, resource_type):
+def return_api_object_data(req, obj_type, obj_name):
+def exec_command(req, board_map, resource_map, res_cmd):
+def return_exec_command(req, board_map, resource_map, res_cmd):
+def return_api_board_action(req, board, action, rest):
+def do_api(req):
+def handle_request(environ, req):
+def cgi_main():
+
