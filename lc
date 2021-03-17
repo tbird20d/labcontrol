@@ -16,7 +16,6 @@
 # To Do:
 #  - convert to path api for operations
 #  - use separate verb/object forms for operations (like ebf)
-#    - 'lc list boards' instead of 'lc list-boards'
 #    - 'lc bbb power reboot' instead of 'lc bbb power-cycle'
 #
 
@@ -151,6 +150,13 @@ criteria are specified, all boards are listed.
                a board that the current user has reserved.  This
                option is used to force the release of a reservation
                by another user.
+"""),
+
+"mydevices": ("Show boards that are assigned to me.",
+    """Usage: lc mydevices
+  Show boards that are reserved my use.  This shows a list of boards
+  that were previously allocated or reserved for me.  These are boards
+  that are available for my use and testing.
 """),
 
 "power": ("Perform a power operation on a board.",
@@ -791,6 +797,35 @@ def do_list(conf, options):
                 "Please specify one of: 'boards', 'devices', 'resources' or 'requests'.")
 
     list_objects_via_api(conf, obj_type, options)
+
+def do_list_mydevices(conf, options):
+    # FIXTHIS - use direct api here
+    url = conf.API_URL_BASE+"api/v0.2/devices/mine"
+
+    headers = { "Authorization": "token " + conf.auth_token }
+
+    resp = requests.get(url, headers=headers)
+    if resp.status_code != 200:
+        error_out("Cannot read %s from server" % obj_type)
+
+    resp_data = resp.json()
+    if type(resp_data) != type([]):
+        # print error
+        try:
+            reason = resp_data["message"]
+        except:
+            reason = "for unknown reasons"
+        error_out("Could not get %s from server: %s" % (obj_type, reason))
+
+    indent = show_list_title("Boards reserved for me on the LabControl server:")
+    if resp_data:
+        for board in resp_data:
+            print indent + board
+    else:
+        if not quiet:
+            print("No boards found assigned to me.")
+
+    sys.exit(0)
 
 def do_power(conf, options):
     # board is a required first argument
@@ -1540,6 +1575,10 @@ def main():
 
     if command == "release":
         do_release(conf, options)
+        sys.exit(0)
+
+    if command == "mydevices":
+        do_list_mydevices(conf, options)
         sys.exit(0)
 
     if command == "status":

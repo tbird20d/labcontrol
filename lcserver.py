@@ -938,6 +938,10 @@ Here are links to the different Lab Control objects:<br>
 
     req.show_footer()
 
+# get a list of items of the indicated object type
+# (by scanning the data/{obj_type}s directory, and
+# parsing the filenames)
+# returns a list of strings with the item names
 def get_object_list(req, obj_type):
     data_dir = req.config.data_dir + os.sep + obj_type + "s"
     obj_list = []
@@ -965,6 +969,7 @@ def return_api_object_list(req, obj_type):
     obj_list = get_object_list(req, obj_type)
     req.send_api_list_response(obj_list)
 
+# read data from json file (from data/{obj_type}s/{obj_type}-{obj_name}.json)
 def get_object_data(req, obj_type, obj_name):
     filename = obj_type + "-" + obj_name + ".json"
     file_path = "%s/%ss/%s-%s.json" %  (req.config.data_dir, obj_type, obj_type, obj_name)
@@ -989,8 +994,23 @@ def get_object_data(req, obj_type, obj_name):
 
     return data
 
-# FIXTHIS - get_object_map is called from both show and path api paths
-# but it sends a text response if the object json is messed up
+# return the list of boards that I have reserved
+# (that are assigned to me)
+def return_my_board_list(req):
+    user = req.get_user()
+
+    boards = get_object_list(req, "board")
+    my_boards =  []
+    for board in boards:
+        board_map = get_object_map(req, "board", board)
+        assigned_to = board_map.get("AssignedTo", "nobody")
+        if user == assigned_to:
+            my_boards.append(board)
+
+    req.send_api_list_response(my_boards)
+
+# return python data structure from json file
+#  (from data/{obj_type}s/{obj_type}-{obj_name}.json)
 def get_object_map(req, obj_type, obj_name):
     data = get_object_data(req, obj_type, obj_name)
     if not data:
@@ -1001,6 +1021,10 @@ def get_object_map(req, obj_type, obj_name):
     except:
         msg = "Invalid json detected in %s '%s'" % (obj_type, obj_name)
         msg += "\njson='%s'" % data
+
+# FIXTHIS - get_object_map is called from both show and path api paths
+# but it sends a text response if the object json is messed up
+
         req.send_response(RSLT_FAIL, msg)
         return {}
 
@@ -1213,6 +1237,10 @@ def do_api(req):
             return
         else:
             board = parts[1]
+            if board == "mine":
+                return_my_board_list(req)
+                return
+
             if len(parts) == 2:
                 # handle api/device/{board}
                 return_api_object_data(req, "board", board)
