@@ -134,6 +134,45 @@ The labcontrol server will reboot the board.  If the board cannot be rebooted
 a message will be provided.
 """),
 
+"get-resource": ("Get a resource associated with a board.",
+    """Usage: lc <board> get-resource <resource_type>
+  Get a resource associated with a board.  The resource type can
+  be one of: "power_measurement" "power_controller".
+
+  The resource can then be to perform an action related to the board.
+
+  The output from 'lc' is the name of the requested resource, or if
+  no resource is assigned, a string starting with the word "Error:"
+  Also, on an error, the return code from 'lc' is non-zero.
+
+ex: pm_resource=$(lc bbb get-resource power_measurement)
+    if [ "$?" == 0 ] ; then
+       echo "The power management resource for board bbb is '$pm_resource'"
+    else:
+       echo "$pm_resource"
+"""),
+
+"power-measurement": ("Perform a power measurement operation using a resource.",
+    """Usage: lc <resource> power_measurement {operation}
+  Perform a power measurement operation on a board.
+  Note that you can also use the alias 'pm' instead of 'power-measurement'
+
+  Operations:
+    start            Start capturing power measurement data, using the
+                     indicated resource.  lc will output a string which
+                     is a token that can be used to control this instance
+                     of power_measurement (that is, to stop, get or delete
+                     the power_measurement data).
+    stop <token>     Stop capturing power measurement data.
+    get-data <token> Return the captured power measurement data.
+    delete <token>   Delete the captured power measurement data, on the server.
+
+ex: token=$(lc acme1 power-measurement start)
+    lc acme pm stop $token
+    lc acme pm get-data $token >power-log.txt
+    lc acme pm delete $token
+"""),
+
 "help": ("Show this online help.",
     """Usage: lc help [<command>]
   If a command is specified, show the usage information for that command."""),
@@ -146,7 +185,7 @@ a message will be provided.
 Show the reservation status for a board."""),
 
 "reserve": ("Reserve a board or resource for use.",
-    """Usage: lc [board] reserve [-f] <name>
+    """Usage: lc <board> reserve [-f] <name>
 
 Reserve the named resource.  Currently, only boards may be reserved.
 A message and the exit code indicate whether the resource is
@@ -657,6 +696,57 @@ def do_status(conf, options):
     #   whether board is running linux (pingable?)
     #   future reservations for board
 
+def do_get_resource(conf, options):
+    # board is a required first argument
+    try:
+        board = options[0]
+        del options[0]
+    except:
+        error_out("No board specified for get_resource operation\n" \
+                "Please specify a board from 'lc list boards'.")
+
+    try:
+        res_type = options[0]
+        del options[0]
+    except:
+        error_out("No resource type specified for get_resource operation\n" \
+                "Please specify a valid resource type.")
+
+    url = conf.API_URL_BASE+"api/v0.2/devices/%s/get_resource/%s" % \
+            (board, res_type)
+
+    headers = { "Authorization": "token " + conf.auth_token }
+
+    resp = requests.get(url, headers=headers)
+    if resp.status_code != 200:
+        error_out("Cannot perform 'get_resource' operation on server")
+
+    resp_data = resp.json()
+
+    try:
+        result = resp_data["result"]
+    except:
+        error_out("Malformed response from server. Missing 'result'. resp=%s" % resp_data)
+
+    if result != RSLT_OK:
+        # print error
+        try:
+            reason = resp_data["message"]
+            if reason.startswith("Error: "):
+                    reason = reason[6:]
+        except:
+            reason = "for unknown reasons"
+        error_out("%s" % reason)
+
+    try:
+        data = resp_data["data"]
+    except:
+        error_out("Malformed response from server. Missing 'data'. resp=%s" % resp_data)
+
+    # operation was performed, result was "success", print the resource name
+    print(data)
+    return
+
 def main():
     global verbose
     global quiet
@@ -678,7 +768,7 @@ def main():
 
     # parse arguments
     command_list = command_help.keys()
-    command_list.extend(["--help", "-h"])
+    command_list.extend(["--help", "-h", "pm"])
     options = []
 
     board = ""
@@ -781,6 +871,14 @@ def main():
 
     if command == "status":
         do_status(conf, options)
+        sys.exit(0)
+
+    if command == "get-resource":
+        do_get_resource(conf, options)
+        sys.exit(0)
+
+    if command in ["power-measurement", "pm"]:
+        do_power_measurement(conf, options, command)
         sys.exit(0)
 
     error_out("Unknown command %s" % command)

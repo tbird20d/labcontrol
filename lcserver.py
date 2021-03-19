@@ -740,7 +740,7 @@ def show_board_info(req, bmap):
     # status, action button for reboot
     # reservations
     req.html.append("<h3>Resources</h3>\n<ul>")
-    pc = bmap.get("power-controller", "")
+    pc = bmap.get("power_controller", "")
     resource_shown = False
     if pc:
         req.html.append("<li>Power controller: %s</li>\n" % pc)
@@ -780,9 +780,9 @@ def show_board_info(req, bmap):
 # returns (RSLT_OK, status|RSLT_FAIL, message)
 # status can be one of: "ON", "OFF", "UNKNOWN"
 def get_power_status(req, bmap):
-    pdu_map = get_connected_resource(req, bmap, "power-controller")
+    pdu_map = get_connected_resource(req, bmap, "power_controller")
     if not pdu_map:
-        msg = "Board %s has no connected power-controller resource" % bmap["name"]
+        msg = "Board %s has no connected power_controller resource" % bmap["name"]
         return (RSLT_FAIL, msg)
 
     # lookup command to execute in resource_map
@@ -1144,6 +1144,7 @@ def return_exec_command(req, board_map, resource_map, res_cmd):
     req.send_api_response_msg(result, msg)
 
 # rest is a list of the rest of the path
+# support actions are: get_resource, power
 def return_api_board_action(req, board, action, rest):
     boards = get_object_list(req, "board")
     if board not in boards:
@@ -1157,8 +1158,25 @@ def return_api_board_action(req, board, action, rest):
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
+    if action == "get_resource":
+        res_type = rest[0]
+        log_this("in get_resource: res_type=%s" % res_type)
+        if res_type not in ["power_controller", "power_measurement"]:
+            msg = "Error: invalid resource type '%s'" % res_type
+            req.send_api_response_msg(RSLT_FAIL, msg)
+            return
+        log_this("board_map=%s" % board_map)
+        resource = board_map.get(res_type, None)
+        if not resource:
+            msg = "Error: no resource type '%s' associated with board '%s'" % \
+                     (res_type, board)
+            req.send_api_response_msg(RSLT_FAIL, msg)
+            return
+        req.send_api_response(RSLT_OK, { "data": resource })
+        return
+
     if action == "power":
-        pdu_map = get_connected_resource(req, board_map, "power-controller")
+        pdu_map = get_connected_resource(req, board_map, "power_controller")
         if not pdu_map:
             msg = "No power controller resource found for board %s" % board
             req.send_api_response_msg(RSLT_FAIL,  msg)
