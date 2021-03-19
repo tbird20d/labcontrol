@@ -1,4 +1,5 @@
 #!/usr/bin/python
+# SPDX-License-Identifier:  MIT
 # vim: set ts=4 sw=4 et :
 #
 # lc - 'lab control' - a tool for interacting with the LabControl server
@@ -7,32 +8,33 @@
 #
 # Some material, and lots of style, copied from ftc
 #
-# Copyright 2020 Sony Corporation
-#
+# Copyright 2020-2021 Sony Corporation
 # Author: Tim Bird  <tim.bird (at) sony.com>
 #
-# SPDX-License-Identifier:  MIT
-#
 # To Do:
+#  - add login command, and do_login
+#    - send password to server, and get authentication token
+#      - put authentication token in config file (that's what ebf does)
+#  - add setenv, and use for board-based commands, if the board is missing
+#  - handle ConnectionError on all request operations
+#    - put a try around main, and report problem if we can't connect?
+#  - check to verify if all imports are needed
+#
+# see lc.legacy for some code that could be re-used for future features
 #
 
-# only import enough to get to container dispatcher in main()
 import os
 import sys
 import subprocess
-
-# delay other imports until we're sure we're running in the container
-re = None
-time = None
-copy2 = None
-signal = None
-fcntl = None
-requests = None
-json = None
-getopt = None
-shutil = None
-tempfile = None
-glob = None
+import re
+import time
+import signal
+import fcntl
+import requests
+try:
+    import simplejson as json
+except ImportError:
+    import json
 
 # MAJOR, MINOR, REVISION, extra_revision
 # extra_revision, if non-empty, should start with a dash
@@ -80,42 +82,18 @@ command_help = {
   If no name is specified, shows all configuration items.
 """),
 
-"add-board": ("Registers a new board with Lab Control.",
-    """Usage: lc add-board < board.json
-  Use 'lc list boards' to see the existing boards registered with the
-  server.
-
-  See the documentation for format of the board.json file."""),
-
-"query-board": ("Show information about a board.",
-    """Usage: lc query-board -b {board} [-q] [-n {attr}]
-  Show information about an object.  Use the '-n' option to display
-  the value of a single attribute, <attr>.  Use '-q' to show the
-  attribute names only.
-"""),
-
 "list": ("Show a list of objects registered with LabControl.",
-    """Usage: lc list {obj-type} [-q] [{criteria} ...]
-  Prints a list of objects with the indicated object type, matching
-  the given criteria (if any).
+    """Usage: lc list <obj-type> [-q]
+  Prints a list of objects with the indicated object type.
 
   Options:
     -q         Use "quiet" mode.  This prints only the board names, with no
                additional information. This is suitable for piping to other
                commands.
-    {obj-type} Specify the type of objects to list
-               (must be one of: boards, resources, requests)
-    {criteria} Filter objects using the specified criteria.
+    <obj-type> Specify the type of objects to list
+               (must be one of: boards, devices, or resources)
 
-Each criteria is specified as string containing <name>=<value>, such as:
-host=timslab.  Asterisk (*) may be used at the beginning or end
-of the value, to indicate a wildcard match. Multiple criteria strings
-may be specified, and are separated with a space.
-
-ex: lc list boards name=b*
-
-The result is a list of boards that match the criteria.  If no
-criteria are specified, all boards are listed.
+  Example: lc list boards
 """),
 
 "allocate": ("Reserve a board for my use.",
@@ -175,35 +153,16 @@ The labcontrol server will reboot the board.  If the board cannot be rebooted
 a message will be provided.
 """),
 
-"query-request": ("Show information about a request.",
-    """Usage: lc query-request <request-id> [-n <attr>]
-  Show information about an request.  By default, show
-  all the attributes of the object.  Use the '-n' option
-  to display the value of a single attribute, <attr>."""),
-
 "help": ("Show this online help.",
     """Usage: lc help [<command>]
   If a command is specified, show the usage information for that command."""),
 
 "version": ("Show version information and exit.", ""),
 
-"put-request": ("Put a new lab request on the server.",
-    """Usage: lc put-request ... [options]
-Put a request on the server to perform the indicated operation.
-
-  ....
-"""),
-
 "status": ("Show status of a board.",
         """Usage: lc <board> status
 
 Show the reservation status for a board."""),
-
-"rm-request": ("Remove a operation request.",
-    """Usage: lc rm-request <request_id>
-
-The request_id is a request identifier on the server (which can be queried
-for with 'lc list requests')."""),
 
 "reserve": ("Reserve a board or resource for use.",
     """Usage: lc [board] reserve [-f] <name>
@@ -264,7 +223,6 @@ class config_class:
         self.auth_token = conf_map.get("token", "abcd01234")
         self.server = conf_map.get("server", "localhost:8000")
         self.default_board = conf_map.get("default_board", "")
-        self.SERVER_URL_BASE = "http://%s/lcserver.py/?action=" % self.server
         self.API_URL_BASE = "http://%s/lcserver.py/" % self.server
 
     # fuego configuration file syntax:
@@ -391,195 +349,17 @@ def print_error(message):
     sys.stderr.write("Error: "+message+"\n")
     sys.stderr.flush()
 
+
 def error_out(message, rcode=1):
     print_error(message)
     sys.exit(rcode)
 
-class board_class:
-    def __init__(self, name, board_path, dist_path, env_vars):
-        self.name = name
-        self.board_path = board_path
-        self.dist_path = dist_path
-        if env_vars:
-            self.env_vars = env_vars
-        else:
-            self.env_vars = {}
-
-
-    def write_run_json_file(self, output_dir="."):
-        # FIXTHIS - run_class is not up-to-date with fuego-schema.json
-        keylist = ["test_name", "timestamp", "num", "host", "board",
-            "result", "device", "reboot", "rebuild", "testplan", "precleanup", "postcleanup",
-            "start_time", "description", "duration", "charset", "keep_log",
-            "built_on", "workspace", "cause",
-            "files"]
-
-        run_map = {}
-        for key in keylist:
-            try:
-                run_map[key] = self.__dict__[key]
-            except:
-                run_map[key] = "unknown"
-
-        jpath = output_dir+os.sep+"run.json"
-        outfile = open(jpath, "w")
-        json.dump(run_map, outfile, sort_keys=True, indent=4, ensure_ascii=False)
-        outfile.close()
 
 def dequote(str):
     if str.startswith('"') and str.endswith('"'):
         return str[1:-1]
     else:
         return str
-
-
-# process single-line VAR=VALUE lines
-# as well as function blocks
-# function foo () {
-# }
-# override-func foo() {
-# }
-# override VAR=VALUE
-def parse_shell_file(path, conf):
-    var_map = {}
-    fd = open(path)
-
-    in_block = 0
-    block = ""
-    line_no = 0
-    for line in fd.readlines():
-        #print "%d: %s" % (line_no, line),
-        line_no += 1
-        # check for comments
-        if line.lstrip().startswith("#"):
-            continue
-
-        if in_block:
-            # try to find end of block
-            if line.lstrip().startswith('}'):
-                # I hope this is the function closing brace
-                block += line
-                var_map[name] = block
-                in_block = 0
-                continue
-            else:
-                block += line
-                continue
-
-        # check for empty line
-        if not line.strip():
-            continue
-
-        if line.startswith("function "):
-            parts = line.split()
-            name = parts[1]
-            if name.endswith("()"):
-                name = name[:-2]
-            name = "function_%s" % name
-            block = line
-            in_block = 1
-            continue
-
-        if line.startswith("override-func "):
-            parts = line.split()
-            name = parts[1]
-            if name.endswith("()"):
-                name = name[:-2]
-            name = "override function_%s" % name
-            # convert 'override-func' in line to 'function'
-            block = "function"+line[13:]
-            in_block = 1
-            continue
-
-        # handle 'inherit' lines in board file
-        if line.startswith('inherit'):
-            inh_file = dequote(line[8:].strip())
-            inh_vars = get_superclass(inh_file, conf)
-            if not var_map.has_key("INHERITS"):
-                var_map["INHERITS"] = [ inh_vars ]
-            else:
-                var_map["INHERITS"].append(inh_vars)
-            var_map.update(inh_vars)
-            continue
-
-        # handle 'include' lines in board file
-        if line.startswith('include'):
-            inc_file = dequote(line[8:].strip())
-            inc_vars = get_includes(inc_file, conf)
-            if not var_map.has_key("INCLUDES"):
-                var_map["INCLUDES"] = [ inc_vars ]
-            else:
-                var_map["INCLUDES"].append(inc_vars)
-            continue
-
-        if line.find("=") == -1:
-            print_error("Syntax error in file %s: Expected '=' at line %d\n%s" % (path, line_no, line))
-            continue
-
-        (name, value) = line.split('=', 1)
-        value = value.strip()
-        if value.startswith('"') and value.endswith('"'):
-            value = value[1:-1]
-        name = name.strip()
-        var_map[name] = value
-
-    fd.close()
-
-    return var_map
-
-# read an argument (e.g. --foo bar) from options
-# returns the text value of the argument, or None if the option was not found
-# options is modified to eliminate the items parsed
-def get_option_arg(options, opt_name):
-    arg_flag = "--"+opt_name
-    arg_value = None
-    if arg_flag in options:
-        pos = options.index(arg_flag)
-        try:
-            arg_value = options[pos + 1]
-        except IndexError:
-            error_out('Value not provided after %s' % arg_flag)
-        del(options[pos+1])
-        del(options[pos])
-
-    return arg_value
-
-# read a boolean argument (e.g. --rebuild false) from options
-# returns the text value of the option (either 'true' or 'false')
-#    or None if the option is not present
-# options is modified to eliminate the items parsed
-# dest_dict is modified to add the parsed argument
-def get_boolean_arg(options, opt_name, dest_dict):
-    arg_value = get_option_arg(options, opt_name)
-    if arg_value:
-        # validate the value
-        if arg_value not in ['true', 'false']:
-            error_out("Invalid %s option '%s'" % (opt_name, arg_value))
-        dest_dict[opt_name] = arg_value
-    return arg_value
-
-# checks options for '--timeout' and '-k'
-# returns the value for the timeout argument
-# updates dest_dict["timeout"] with the timeout argument
-def get_timeout_arg(options, dest_dict):
-    timeout = get_option_arg(options, "timeout")
-    if not timeout:
-        arg_flag = "-k"
-        if arg_flag in options:
-            pos = options.index(arg_flag)
-            try:
-                timeout = options[pos + 1]
-            except IndexError:
-                error_out("Value not provided after '%s'" % arg_flag)
-            del(options[pos+1])
-            del(options[pos])
-
-    if timeout:
-        # validate the value
-        if re.match('^\d+[dhms]', timeout) is None:
-            error_out('%s: Timeout format not supported.' % timeout)
-        dest_dict["timeout"] = timeout
-    return timeout
 
 # shows a list title, if not quiet, and
 # returns an indent to use for the list
@@ -594,150 +374,6 @@ def show_list_title(title):
         indent = ""
     return indent
 
-
-class where_class:
-    def __init__(self, field_name, op, value):
-        self.field_name = field_name
-
-        self.op = op
-
-        if field_name == "start_time":
-            # convert value to seconds since epoch
-            # this allows things like: "start_time>yesterday"
-            import parsedatetime as pdt
-            import datetime
-            cal = pdt.Calendar()
-            d_tuple = cal.parse(value)
-            dt = datetime.datetime(*d_tuple[0][:7])
-            value = str(time.mktime(dt.timetuple())*1000)
-            # FIXTHIS - print value in nicer format
-            vprint("where start_time value is '%s'" % value)
-
-        self.value = value
-
-    def __repr__(self):
-       return "where(%s, %s, %s)" % (self.field_name, self.op, self.value)
-
-    def check_value(self, run_value):
-        if self.op == "=":
-            return run_value == self.value
-        elif self.op == "!=":
-            return run_value != self.value
-        elif self.op == "=~":
-            return re.match(self.value, run_value)
-        elif self.op == "<=":
-            try:
-                return float(run_value) <= float(self.value)
-            except ValueError:
-                return False
-        elif self.op == ">=":
-            try:
-                return float(run_value) >= float(self.value)
-            except ValueError:
-                return False
-        elif self.op == "<":
-            try:
-                return float(run_value) < float(self.value)
-            except ValueError:
-                return False
-        elif self.op == ">":
-            try:
-                return float(run_value) > float(self.value)
-            except ValueError:
-                return False
-
-        return False
-
-    def match(self, run):
-        # some fields can be found without loading the run.json file
-        # examples are: "test", "type", "spec", "board", "num"
-        found = False
-        try:
-            run_value = run.__dict__[self.field_name]
-            found = True
-        except:
-            pass
-
-        #if not found:
-        #    print("Warning: did not find field '%s' in run %s" % \
-        #        (self.field_name, run.run_id))
-
-        if not found or run_value == "<data not loaded>":
-            run.get_run_data_from_json_file()
-            try:
-                run_value = run.__dict__[self.field_name]
-                found = True
-            except:
-                try:
-                    run_value = run.run_data["metadata"][self.field_name]
-                    found = True
-                except:
-                    pass
-
-        if found:
-            return self.check_value(run_value)
-
-        print("Did not find field '%s' in loaded object data for object %s" % (self.field_name, run.run_id))
-        return False
-
-# returns a where_list (list of where tuples)
-# each where tuple is (field_name, operation, value)
-def parse_where(where_string):
-    # the order of entries in this list is important
-    # use most-specific strings first
-    op_list = ["!=", "=~", "<=", ">=", "=", "<", ">"]
-    field_list = ["test", "type", "spec", "board", "start_time", "result",
-            "batch_id", "status", "build_number",
-            "duration_ms"]
-    where_list = []
-    for clause in where_string.split(","):
-        where = None
-        for op in op_list:
-            if op in clause:
-                field_name, value = clause.split(op, 1)
-                if field_name not in field_list:
-                    error_out("Invalid field '%s' in where condition" % field_name)
-                where = where_class(field_name, op, value)
-                break
-        if where:
-            where_list.append(where)
-        else:
-            print("Error: unknown where condition %s" % where)
-
-    dprint("where_list=%s" % where_list)
-
-    return where_list
-
-# FIXTHIS - this uses the old requests API
-def get_objects_from_server(conf, obj_type, options):
-    url = conf.SERVER_URL_BASE+"query_objects"
-
-    data = {}
-    data["obj_type"] = obj_type
-
-    valid_fields = ["board", "host", "request_time", "requestor", "run_id",
-                    "spec", "state", "test_name"]
-
-    for criteria in options:
-        if "=" not in criteria:
-            error_out("Unrecognized criteria '%s' specified for query of %s" %
-                   (criteria, obj_type))
-        field, value = criteria.split("=", 1)
-        if field not in valid_fields:
-            error_out("Request query criteria must be one of %s" % valid_fields)
-        data[field] = value
-
-    headers = { "Authorization": "token " + token }
-
-    resp = requests.post(url, headers=headers, data=data)
-    result, content = resp.text.split('\n', 1)
-    if result != RSLT_OK:
-        error_out("Can't read %ss from server\nServer returned message: %s" % (obj_type, content))
-    obj_list = []
-    for obj in content.split("\n"):
-        if obj:
-            obj_list.append(obj)
-    return obj_list
 
 # returns a list of objects
 # if an error occurs, then the routine errors out with a message
@@ -760,6 +396,7 @@ def get_objects_via_api(conf, obj_type, options):
         error_out("Could not get %s from server: %s" % (obj_type, reason))
 
     return resp_data
+
 
 def list_objects_via_api(conf, obj_type, options):
     global quiet
@@ -784,22 +421,51 @@ def list_objects_via_api(conf, obj_type, options):
 
     sys.exit(0)
 
+def do_config(conf, options):
+    """
+        Show all config options, or a single config option
+    """
+    try:
+        name = options[0]
+    except:
+        # list configuration options
+        conf_item_list = []
+        for item in conf.__dict__.keys():
+            # filter out computed items
+            if item not in ["API_URL_BASE"]:
+                conf_item_list.append(item)
+        conf_item_list.sort()
+        for item in conf_item_list:
+            print("%s=%s" % (item, getattr(conf, item)))
+        sys.exit(1)
+
+    print getattr(conf, name, "")
+
+
 def do_list(conf, options):
-    # obj_type is a required first argument
+    """
+    Show a list of objects on the server.  object type is a required
+    first argument.
+    """
     try:
         obj_type = options[0]
         del options[0]
     except:
         error_out("No object type specified for list operation" + \
-                "Please specify either 'boards', 'devices', 'resources' or 'requests'.")
+                "Please specify either 'boards', 'devices', or 'resources'.")
 
-    if obj_type not in ["boards", "devices", "resources", "requests"]:
+    if obj_type not in ["boards", "devices", "resources"]:
         error_out(("Invalid object type '%s'\n" % obj_type) + \
-                "Please specify one of: 'boards', 'devices', 'resources' or 'requests'.")
+                "Please specify one of: 'boards', 'devices', or 'resources'.")
 
     list_objects_via_api(conf, obj_type, options)
 
+
 def do_list_mydevices(conf, options):
+    """
+    Show devices (boards) assigned to me (that is, with a reservation by me
+    on the server).
+    """
     url = conf.API_URL_BASE+"api/v0.2/devices/mine"
 
     headers = { "Authorization": "token " + conf.auth_token }
@@ -965,353 +631,6 @@ def do_release(conf, options):
     print('Device "%s" is released and available to use.' % board)
     return
 
-# returns dictionary for the request
-def get_request(conf, req_id):
-    url = conf.SERVER_URL_BASE+"get_request"
-    data = { "request_id": req_id }
-    resp = requests.post(url, data=data)
-    result, content = resp.text.split('\n', 1)
-    if result != RSLT_OK:
-        error_out("Can't read request '%s' from server\nServer returned message: %s" % (req_id, content))
-
-    try:
-        req = json.loads(content)
-    except:
-        error_out("Can't convert json from server for request '%s'\nServer data was: %s" % (req_id, content))
-
-    return req
-
-def update_request(conf, req_id, state, run_id=None):
-    url = conf.SERVER_URL_BASE+"update_request"
-    data = { "request_id": req_id, "state": state }
-
-    if state == "running":
-        data["start_time"] = time.strftime("%FT%T%z")
-    if state == "done":
-        data["done_time"] = time.strftime("%FT%T%z")
-
-    if run_id:
-        data["run_id"] = run_id
-    resp = requests.post(url, data=data)
-    result, content = resp.text.split('\n', 1)
-    if result != RSLT_OK:
-        error_out("Can't update request '%s' from server\nServer returned message: %s" % (req_id, content))
-
-    try:
-        req = json.loads(content)
-    except:
-        error_out("Can't convert json from server for request '%s'\nServer data was: %s" % (req_id, content))
-
-    return req
-
-
-# remove a request from the server
-def remove_request(conf, req_id):
-    url = conf.SERVER_URL_BASE+"remove_request"
-    data = { "request_id": req_id }
-    resp = requests.post(url, data=data)
-    result, content = resp.text.split('\n', 1)
-    if result != RSLT_OK:
-        print("Can't remove request '%s' from server\nServer returned message: %s" % (req_id, content))
-    return result
-
-def do_rm_request(conf, options):
-    # FIXTHIS support wildcard removal in do_rm_request
-    req_id = options[0]
-
-    result = remove_request(conf, req_id)
-    if result == RSLT_OK:
-        print"Request was removed from the server"
-        sys.exit(0)
-    else:
-        sys.exit(1)
-
-def do_query_request(conf, options):
-    attr = None
-    if '-n' in options:
-        try:
-            attr = options[options.index('-n')+1]
-        except:
-            error_out("Missing attribute to show")
-        options.remove('-n')
-        options.remove(attr)
-
-    if not options:
-        error_out("Missing request id to query")
-
-    req_id = options[0]
-    del options[0]
-
-    req = get_request(conf, req_id)
-
-    # show fields based on returned data
-    attrs = req.keys()
-    attrs.sort()
-
-    if attr:
-        try:
-            value = req[attr]
-        except:
-            error_out("request '%s' has no attribute '%s'." % (req_id, attr))
-        print value
-    else:
-        # show all attributes
-        for attr in attrs:
-            print "%13s : %s" % (attr, req[attr])
-
-def make_temp_file(data):
-    try:
-        fd = tempfile.NamedTemporaryFile(prefix="lc-", delete=False)
-        fd.write(data)
-    finally:
-        fd.close()
-
-    return fd.name
-
-
-# routines for handling sub-process timeouts
-class LC_INTERRUPT(Exception):
-    pass
-
-def alarm_handler(signum, frame):
-    raise LC_INTERRUPT
-
-# this function executes the command, and shows the log file
-# while it is running
-def lc_exec_command(command, timeout):
-    global log, tail_fd
-
-    dprint("lc_exec_command: command=%s" % command)
-
-    p = subprocess.Popen(command.split(), stdout=log, stderr=log)
-
-    # specify timeout for command operation
-    signal.signal(signal.SIGALRM, alarm_handler)
-
-    # timeout is passed as integer[dhms] (dhms: days, hours, minutes, seconds)
-    vprint("timeout is: " + timeout)
-    units = timeout[:-1]
-    multiplier = {"d": 24*60*60, "h": 60*60, "m": 60, "s": 1}
-    time_secs = int(units)*multiplier[timeout[-1]]
-    dprint("setting alarm to: " + str(time_secs) + " seconds")
-    signal.alarm(time_secs)
-
-    # fix Python's wierd pipe handling, so subprocess command will handle pipe
-    # signals correctly.  Otherwise, something like 'lc ... | head' will fail
-    signal.signal(signal.SIGPIPE,signal.SIG_DFL)
-    timed_out = False
-
-    try:
-        while p.poll() is None:
-            #sys.stdout.write(".")
-            # output the log while the command is running
-            log.flush()
-            data = os.read(tail_fd, 4096)
-            if data:
-                sys.stdout.write(data)
-                sys.stdout.flush()
-
-            time.sleep(.1)
-
-    except LC_INTERRUPT:
-        print("Job interrupted! Timeout of '%s' was exceeded." % timeout)
-        # FIXTHIS - try graceful termination of test
-        # disable slow termination for now (2018-12-29), because some tests
-        # report SUCCESS if post_test runs but they still have missing
-        # testcases - this needs more work
-
-        #p.send_signal(signal.SIGTERM)
-        #for i in range(3):
-        #    if p.poll() == None:
-        #        time.sleep(10)
-        #        p.send_signal(signal.SIGTERM)
-        #if p.poll() == None:
-        #    p.kill()
-
-        # abort with prejudice...
-        p.kill()
-        timed_out = True
-
-    finally:
-        # cancel the timeout alarm
-        signal.alarm(0)
-
-    if timed_out:
-        dprint("returning signal.SIGALRM to indicate timeout")
-        return signal.SIGALRM
-    else:
-        dprint("returning test return code of %s" % p.returncode)
-        return p.returncode
-
-def do_put_request(conf, options):
-    # FIXTHIS - options for put_request should be same as run-test
-    try:
-        board_host = options[0]
-        del options[0]
-    except:
-        print_error("Missing board for operation")
-        usage(1, ["put-request"])
-
-    try:
-        host, board = board_host.split(":", 1)
-    except:
-        print_error("Must specify both host and board")
-        usage(1, ["put-request"])
-
-    try:
-        test_name = options[0]
-        del options[0]
-    except:
-        print_error("Missing test for operation")
-        usage(1, ["put-request"])
-
-    url = conf.SERVER_URL_BASE+"put_request"
-    data = {"test_name": test_name,
-            "version": "any",
-            "test_fuego_release": "any",
-            "host": host,
-            "board": board,
-            "reboot": reboot,
-            "variant": variant,
-            "requestor": conf.user + "@" + conf.host,
-            "run_id": "unknown",
-            "start_time": "unknown",
-            "done_time": "unknown",
-            }
-    resp = requests.post(url, data=data)
-    result, content = resp.text.split('\n', 1)
-    if result != RSLT_OK:
-        error_out("Can't put request to server\nServer returned message: %s" % content)
-
-    print "Request was accepted by the server."
-    print content
-    sys.exit(0)
-
-
-# This routine has no callers, and uses the old API
-def do_put_resource(conf, options):
-    try:
-        test_arg = options[0]
-    except:
-        error_out("Must specify a resource name to put")
-        usage(1, ["put-test"])
-
-    # check whether argument is a file or test name
-    if os.path.isfile(test_arg):
-        created_package = False
-        test_filepath = test_arg
-        if not test_filepath.endswith(".ftp"):
-            error_out("Invalid extension for test package.  Was expecting '.ftp'")
-    else:
-        created_package = True
-        test_filepath = do_package_test(conf, [test_arg, "-o", "/tmp"])
-
-    url = conf.SERVER_URL_BASE+"put_resource"
-    test_files = {"file1": open(test_filepath, "rb")}
-    resp = requests.post(url, files=test_files)
-    if created_package:
-        os.remove(test_filepath)
-    result, content = resp.text.split('\n', 1)
-    if result != RSLT_OK:
-        error_out("Can't put test to server\nServer returned message: %s" % content)
-
-    print "Test package %s was accepted by the server." % os.path.basename(test_filepath)
-
-def put_resource_data_file(conf, data_filepath):
-    url = conf.SERVER_URL_BASE+"put_resource_data"
-    data_files = {"file1": open(data_filepath, "rb")}
-    resp = requests.post(url, files=data_files)
-    return resp.text.split('\n', 1)
-
-# returns a matching item (which must be unique)
-# from a list.  A matching item is one with leading
-# characters that exactly match the item
-# e.g. 'bea' matches 'beaglebone' if there are no other
-# items in the list that start with 'bea'.
-# Returns None if there is no match and "*multiple*" for
-# multiple matches. (both are errors)
-def match_from_list(item, item_list):
-    match = None
-    for candidate in item_list:
-        if candidate.startswith(item):
-            if match:
-                # not unique, no match to either
-                return "*multiple*"
-            else:
-                match = candidate
-    return match
-
-
-def do_query_board(bvars, options):
-    global quiet
-
-    attrs = bvars.keys()
-    attrs.sort()
-    board_name = bvars["board"]
-
-    shell_format = False
-    if '--sh' in options:
-        shell_format = True
-        options.remove('--sh')
-
-    # print a single data item, if requested
-    attr = None
-    if '-n' in options:
-        attr = options[options.index('-n')+1]
-        options.remove('-n')
-        options.remove(attr)
-
-    if options:
-        wprint("There were unprocessed options: %s" % " ".join(options))
-
-    if attr:
-        try:
-            value = bvars[attr]
-        except:
-            error_out("board '%s' has no attribute '%s'." % (board_name, attr), 1)
-        if not value.startswith("function ") and shell_format:
-            print '%s="%s"' % (attr, value)
-        else:
-            print dequote(value)
-        return
-
-    attrs.remove("board")
-
-    if quiet:
-        for attr in attrs:
-            print attr
-        return
-
-    if shell_format:
-        for attr in attrs:
-            value = bvars[attr]
-            if value.startswith("function "):
-                print value
-            else:
-                print '%s="%s"' % (attr, bvars[attr])
-        return
-
-    print "Information for board: %s\n" % board_name
-
-    if bvars.has_key("description"):
-        desc = bvars["description"]
-        print desc
-        attrs.remove("description")
-
-    for attr in attrs:
-        #dprint("attr=%s" % attr)
-        value = bvars[attr]
-        if value.find('\n') == -1:
-            # print single-line value
-            print "%25s : %s" % (attr, bvars[attr])
-        else:
-            # print multi-line value
-            lines = value.split('\n')
-            print "%25s : %s" % (attr, lines[0])
-            # subsequent lines are indented
-            for line in lines[1:]:
-                print " "*28 + line
-    return
 
 # show the status of a board
 def do_status(conf, options):
@@ -1357,149 +676,16 @@ def do_status(conf, options):
     #   whether board is running linux (pingable?)
     #   future reservations for board
 
-
-## do_set_env
-# set the vars from bmap into the current environment
-# if options list has "-o", output the env as a list of shell export statements
-# if options list has "-s", start a sub-shell
-#
-# variable precedence:
-#   value from 'board' command line = highest precedence
-#   value from pre-existing environment = medium precedence
-#   value from <board>.board file = lowest precendence
-#
-# This means that effectively, board commands don't "nest" if
-# a different board is specified.  This is because the <board>.board
-# values for a new board would not override the values in the
-# sub-shell environment of the first board.
-# (i.e. bad things will happen if you do: "lc setenv osk", then
-#   "lc ebony getkernel ; make $kimage" )
-#
-def do_setenv(bmap, options=[]):
-    if "-s" in options:
-        print "Setting environment for board: %s" % bmap["board"]
-
-    # set board name in new shell environment
-    os.environ[BOARD_ENV_VAR] = bmap["board"]
-
-    # copy certain environment vars for the new shell
-    env_list = ["ARCH", "CROSS_COMPILE", "kimage", "INSTALL_PATH",
-        "INSTALL_MOD_PATH", "ADBHOST", "BUILDDIR",
-        "KERNEL_SRC", "KBUILD_OUTPUT", "TOOL_PATH", "TMPDIR"]
-
-
-    for var in env_list:
-        if bmap.has_key(var) and bmap[var] and not os.environ.has_key(var):
-            os.environ[var] = bmap[var]
-
-    # add TMPDIR if not already present
-    if not os.environ.has_key("TMPDIR"):
-        os.environ["TMPDIR"] = "/tmp"
-
-    # if TOOL_PATH is present, add it to regular PATH, if not already there
-    if bmap.has_key("TOOL_PATH"):
-        tool_path = bmap["TOOL_PATH"]
-        PATH = os.environ["PATH"].split(":")
-        for tool_path_item in tool_path.split(":"):
-            if tool_path_item not in PATH:
-                PATH.append(tool_path_item)
-        os.environ["PATH"] = ":".join(PATH)
-        # DEBUG
-        #print "os.environ['PATH']=", os.environ["PATH"]
-
-    # if output of export list is requested, do that
-    if "-o" in options:
-        export_list = env_list + ["PATH", BOARD_ENV_VAR]
-        for var in export_list:
-            if os.environ.has_key(var):
-                value = os.environ[var]
-                # escape spaces
-                value = re.sub(" ", "\ ", value)
-                print "export %s=%s" % (var, value)
-        return
-
-    if "-s" in options:
-        # start a new shell with the modified environment
-        # FIXTHIS - add TTC to prompt
-        #print "os.environ=", os.environ
-        #prompt = os.environ["PS1"]
-        #prompt = prompt[0] + "TTC " + prompt[1:]
-        #os.environ["PS1"] = "[TTC \\u@\\h \\W]\\$ "
-
-        # FIXTHIS - should get user's preferred shell from /etc/passwd
-        print "Starting sub-shell with environment for board."
-        print "Use 'exit' to exit the sub-shell."
-        os.system("/bin/bash")
-
-# this takes an exception object (e), and formats it as a string
-# safely (handling UnicodeEncode errors), then shows usage help, and
-# exits the program with an error message.
-#
-# Background:
-# python 2.7 uses default encoding of 'ascii'. If e is an exception from
-# the jenkins module, then using str(e) will cause the module to use str()
-# on the error message from the jenkins server. If that message has non-ascii
-# chars (which is not uncommon), then python raises a UnicodeEncodeError
-# exception.  I don't want to change the code for the jenkins
-# module, and I have no other way of retrieving the string, which I'd like
-# to print.
-# So, do this hack where we reload sys and change the defaultencoding from
-# 'ascii' to 'utf8'.  The function setdefaultencoding() exists in the
-# sys module, but is deleted when it is imported (but not on 'reload').
-# I could have modified /usr/lib/python2.7/site.py inside the container
-# to remove the code that deletes the function.  This would have avoided
-# the need to do the 'reload(sys)'.
-# But I decided to limit the scope of this change.
-# Sheesh - what a mess!
-def safe_str_help_and_exit(e, lc_cmd):
-    try:
-       err_msg = str(e)
-       prefix = ""
-    except UnicodeEncodeError:
-        if sys.version_info[0] < 3:
-           # this reload is hacky and can have bad side effects, but we're on
-           # our way out of the program, so we don't care
-           reload(sys)
-           sys.setdefaultencoding('utf8')
-
-        err_msg = str(e)
-        prefix = "ERROR: Operation '%s' raised exception with string:\n" % lc_cmd
-    msg = prefix + err_msg + '\n---\n' + command_help[lc_cmd][1]
-    sys.exit(msg)
-
-outside_ok_cmd_list = ["put-binary-package"]
-
 def main():
-    # use global module names
-    global re, time, copy2, subprocess, signal, fcntl, requests, json
-    global getopt, shutil, tempfile, glob
-
     global verbose
     global quiet
     global debug
     global server
-    global jenkins
 
     # find the configuration file
     # we can always find it inside the container, but outside
     # the container it may be somewhere weird
     config_filepath = default_config_filepath
-
-    # now do most imports
-    import re
-    import time
-    from shutil import copy2
-    import signal
-    import fcntl
-    import requests
-    try:
-        import simplejson as json
-    except ImportError:
-        import json
-    import getopt
-    import shutil
-    import tempfile
-    import glob
 
     if len(sys.argv) < 2:
         error_out('Missing command\nUse "lc help" to get usage help.', 1)
@@ -1508,7 +694,6 @@ def main():
     command_list = command_help.keys()
     command_list.extend(["--help", "-h"])
     options = []
-
 
     board = ""
     command = ""
@@ -1571,6 +756,8 @@ def main():
     conf = config_class(config_filepath)
 
     if command == "config":
+        do_config(conf, options)
+        sys.exit(0)
         try:
             name = options[0]
         except:
@@ -1578,7 +765,7 @@ def main():
             conf_item_list = []
             for item in conf.__dict__.keys():
                 # filter out computed items
-                if item not in ["SERVER_URL_BASE"]:
+                if item not in ["API_URL_BASE"]:
                     conf_item_list.append(item)
             conf_item_list.sort()
             for item in conf_item_list:
@@ -1586,7 +773,6 @@ def main():
             sys.exit(1)
 
         print getattr(conf, name, "")
-        sys.exit(0)
 
     if command == "list":
         do_list(conf, options)
@@ -1609,46 +795,6 @@ def main():
 
     if command == "status":
         do_status(conf, options)
-        sys.exit(0)
-
-    # FIXTHIS - remove or finish these routines
-    if command == "put-request":
-        do_put_request(conf, options)
-
-    if command == "rm-request":
-        do_rm_request(conf, options)
-
-    if command == "add-resource":
-        do_add_resource(conf, options)
-        sys.exit(0)
-
-    if command == "query-request":
-        do_query_request(conf, options)
-        sys.exit(0)
-
-
-    # all non-board commands have been handled
-    #if command in board_mod_commands:
-    #   check_reservation(bmap, command)
-
-    #board_names, options = get_board_arg(command, conf, options, "!m")
-    #board_name = board_names[0]
-    #bmap = get_boards(conf)
-    #board = bmap[board_name]
-    #bvars = get_board_vars(board, conf)
-
-    # LEGACY stuff follows - need to review
-    # process the command
-    if command == "query-board":
-        do_query_board(bvars, options)
-        sys.exit(0)
-
-    if command == "set-var":
-        do_set_var(bvars, options)
-        sys.exit(0)
-
-    if command == "delete-var":
-        do_delete_var(bvars, options)
         sys.exit(0)
 
     error_out("Unknown command %s" % command)
