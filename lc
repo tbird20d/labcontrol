@@ -16,6 +16,7 @@
 #    - send password to server, and get authentication token
 #      - put authentication token in config file (that's what ebf does)
 #  - add setenv, and use for board-based commands, if the board is missing
+#    - maybe can use 'lc config default_board bbb' to get same effect?
 #  - handle ConnectionError on all request operations
 #    - put a try around main, and report problem if we can't connect?
 #  - check to verify if all imports are needed
@@ -25,11 +26,6 @@
 
 import os
 import sys
-import subprocess
-import re
-import time
-import signal
-import fcntl
 import requests
 try:
     import simplejson as json
@@ -51,29 +47,14 @@ quiet = False
 verbose = False
 debug = False
 
-default_config_filepath = "/etc/lc.conf"
+# local config file is hidden (starts with a dot), and
+# is in the user home directory
+config_filename = ".lc.conf"
+system_config_filepath = "/etc/lc.conf"
 
-# This is the name of the environment variable
-# used to keep track of the current board
-BOARD_ENV_VAR = "LC_BOARD"
-
-where_help = \
-"""The --where option can be used to specify one or more 'where' specifiers
-  to filter the list of runs. Each where clause is separated by a comma.
-  A 'where clause' consists of a field_name, an operator and a value.
-  Allowed field names are: test, type, spec, board, start_time, result,
-  batch_id, status, build_number, tguid, and tguid:result.
-  Allowed operators are: '=','<','<=','>','>=','!=','=~'.  The '=~' operator
-  means the value is a regular expression to match, for the indicated field.
-  Here are some example where options:
-     --where test=LTP
-     --where test=bonnie,board=beaglebone
-     --where "start_time>2 hours ago"
-     --where batch_id=12
-     --where tguid=~.*udp.*
-     --where tguid:result=FAIL"""
-
-# format for command_help mapping with: key=name, value=(summary, long description)
+# command_help is a python map with:
+#   key=name, value=(summary, long description)
+#
 command_help = {
 "config": ("Show Lab Control configuration setting.",
     """Usage: lc config <name>
@@ -683,9 +664,14 @@ def main():
     global server
 
     # find the configuration file
-    # we can always find it inside the container, but outside
-    # the container it may be somewhere weird
-    config_filepath = default_config_filepath
+
+    # check for config in user's home directory
+    # if present, this supercedes the system-wide config
+    home = os.environ.get("HOME", "")
+    config_filepath = home + os.sep + config_filename
+
+    if not home or not os.path.exists(config_filepath):
+        config_filepath = system_config_filepath
 
     if len(sys.argv) < 2:
         error_out('Missing command\nUse "lc help" to get usage help.', 1)
