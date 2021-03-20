@@ -58,6 +58,10 @@ import tempfile
 # import these as needed
 #import json
 #import yaml
+import copy
+import shlex
+import subprocess
+import signal
 
 debug_api_response = False
 # uncomment this to dump response data to the log file
@@ -1160,12 +1164,10 @@ def return_api_board_action(req, board, action, rest):
 
     if action == "get_resource":
         res_type = rest[0]
-        log_this("in get_resource: res_type=%s" % res_type)
         if res_type not in ["power_controller", "power_measurement"]:
             msg = "Error: invalid resource type '%s'" % res_type
             req.send_api_response_msg(RSLT_FAIL, msg)
             return
-        log_this("board_map=%s" % board_map)
         resource = board_map.get(res_type, None)
         if not resource:
             msg = "Error: no resource type '%s' associated with board '%s'" % \
@@ -1258,6 +1260,217 @@ def return_api_board_action(req, board, action, rest):
     msg = "action '%s' not supported (rest='%s')" % (action, rest)
     req.send_api_response_msg(RSLT_FAIL, msg)
 
+CAPTURE_LOG_FILENAME_FMT="/tmp/capture-log-%s.txt"
+CAPTURE_PID_FILENAME_FMT="/tmp/capture-%s.pid"
+
+# return pid of command
+# only execute a single-line command, for now
+def new_exec_command(cmd):
+    from subprocess import Popen, PIPE, STDOUT
+
+    exec_args = shlex.split(cmd)
+
+    # FIXTHIS - add more stuff here
+
+    try:
+        proc = Popen(exec_args, stdin=PIPE, stdout=PIPE, stderr=PIPE, close_fds=True)
+    except subprocess.CalledProcessError as e:
+        msg = "Can't run command '%s' in exec_command" % cmd
+        return (0, msg)
+    except OSError as error:
+        msg = error + " trying to execute command '%s'" % cmd
+        return (0, msg)
+
+    pid = proc.pid
+    return (pid, "OK")
+
+
+# returns token, reason
+# on error, token is None or empty and reason is a string with an error
+# message.  The error message should start with "Error: "
+def start_capture(req, action, resource_map, rest):
+    # FIXTHIS - look up capture_cmd in resource_map, and call it
+    # save pid in resource file
+    resource = resource_map["name"]
+    capture_cmd = resource_map.get("capture_cmd")
+
+    log_this("capture_cmd=" + capture_cmd)
+
+    # generate the logfile, and hand  to the capture_cmd
+    # FIXTHIS - use a hardcoded logfile and pidfile for now
+    token = "1234"
+    logfile = CAPTURE_LOG_FILENAME_FMT % token
+    pidfile = CAPTURE_PID_FILENAME_FMT % resource
+
+    if os.path.exists(pidfile):
+        # FIXTHIS - in start_capture, check and see if process is still running
+        # if not, just remove pidfile, and continue
+        return ("", "Capture is already running for resource %s" % resource)
+
+    # do string interpolation from the data in the resource map
+    # (adding the 'logfile' attribute)
+    d = copy.deepcopy(resource_map)
+    d.update( { "logfile": logfile } )
+
+    cmd = capture_cmd % d
+    log_this("(interpolated) cmd=" + cmd)
+
+    pid, msg = new_exec_command(cmd)
+    if pid:
+        log_this("exec failure: reason=" + msg)
+        fd = open(pidfile,"w")
+        fd.write(str(pid))
+        fd.close()
+    else:
+        log_this("capture pid=" + pid)
+        return ("", msg)
+
+    return (token, "")
+
+# sends reason on failure
+def stop_capture(req, action, resource_map, token, rest):
+    resource = resource_map["name"]
+
+    pidfile = CAPTURE_PID_FILENAME_FMT % resource
+
+    if not os.path.exists(pidfile):
+        return "Cannot find executing capture for %s for resource '%s'" % (action, resource)
+
+    # Could support optional stop_cmd execution here
+    # but let's wait on that.
+    try:
+        fd = open(pidfile, "r")
+        pid = int(fd.read().strip())
+        fd.close()
+    except IOError:
+        pid = None
+
+    if not pid:
+        return "Cannot find in-progress capture for %s for resource '%s'" % (action, resource)
+
+    try:
+        while 1:
+            os.kill(pid, signal.SIGTERM)
+            time.sleep(0.1)
+    except OSError as err:
+        err = str(err)
+        if err.find("No such process") > 0:
+            if os.path.exists(pidfile):
+                os.remove(pidfile)
+
+    return None
+
+# returns data, reason
+# data is empty on failure, and reason is a string with error message
+# otherwise, sends data from capture.  Captured data may be transformed
+# from its original format, but in all cases should be sent as json.
+def get_captured_data(req, action, resource_map, token, rest):
+    resource = resource_map["name"]
+
+    logfile = CAPTURE_LOG_FILENAME_FMT % token
+
+    if not os.path.exists(logfile):
+        return (None, "Cannot find capture log for %s for resource '%s'" % (action, resource))
+
+    try:
+        fd = open(logfile, "r")
+        log_data = fd.read()
+        fd.close()
+    except IOError:
+        log_data = None
+
+    if not log_data:
+        return (None, "Cannot read capture data for %s for resource '%s'" % (action, resource))
+
+    # convert to json data
+    # FIXTHIS - use hardcoded re-format operation here, for sdb data
+    # should run a conversion command specified by the resource object
+    jdata = "[\n"
+    for line in log_data.split("\n"):
+        if not line:
+            continue
+        parts = line.split(",")
+        try:
+            jdata += ' { "timestamp": "%s", "voltage": "%s", "current": "%s" }\n' % (parts[0], float(parts[1])/1000.0, float(parts[2])/1000.0)
+        except:
+            log_this("Problem converting log_data line for power measurement\nline='%s'" % line)
+    jdata += "]"
+
+    return (jdata, "")
+
+# returns reason on failure, "" on success
+def delete_capture(req, action, resource_map, token, rest):
+    resource = resource_map["name"]
+
+    logfile = CAPTURE_LOG_FILENAME_FMT % token
+    if not os.path.exists(logfile):
+        return "Cannot captured data for %s for resource '%s'" % (action, resource)
+    os.remove(logfile)
+    return ""
+
+
+# rest is a list of the rest of the path
+# support actions are: get_resource, power
+def return_api_resource_action(req, resource, action, rest):
+    resources = get_object_list(req, "resource")
+    if resource not in resources:
+        msg = "Could not find resource '%s' registered with server" % resource
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    resource_map = get_object_map(req, "resource", resource)
+    if not resource_map:
+        msg = "Problem loading data for resource '%s'" % resource
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    if action == "power_measurement":
+        operation = rest[0]
+        if operation in ["stop_capture", "get_data", "delete"]:
+            try:
+                token = rest[1]
+            except IndexError:
+                msg = "Missing token for power_measurement operation"
+                req.send_api_response_msg(RSLT_FAIL, msg)
+                return
+
+        if operation == "start_capture":
+            token, reason = start_capture(req, action, resource_map, rest[1:])
+            if not token:
+                req.send_api_response_msg(RSLT_FAIL, reason)
+                return
+            req.send_api_response(RSLT_OK, { "data": token } )
+            return
+        elif operation == "stop_capture":
+            reason = stop_capture(req, action, resource_map, token, rest[2:])
+            if reason:
+                req.send_api_response_msg(RSLT_FAIL, reason)
+                return
+            req.send_api_response(RSLT_OK)
+            return
+        elif operation == "get_data":
+            data, reason = get_captured_data(req, action, resource_map, token, rest[2:])
+            if reason:
+                req.send_api_response_msg(RSLT_FAIL, reason)
+                return
+            req.send_api_response(RSLT_OK, { "data": data } )
+            return
+        elif operation == "delete":
+            reason = delete_capture(req, action, resource_map, token, rest[2:])
+            if reason:
+                req.send_api_response_msg(RSLT_FAIL, reason)
+                return
+            req.send_api_response(RSLT_OK)
+            return
+        else:
+            msg = "operation '%s' not supported for power_measurement" % (operation)
+            req.send_api_response_msg(RSLT_FAIL, msg)
+            return
+
+
+    msg = "action '%s' not supported (rest='%s')" % (action, rest)
+    req.send_api_response_msg(RSLT_FAIL, msg)
+
 # api paths are:
 #  lc/ebf command -> api path
 # list boards, list devices -> api/v0.2/devices/"
@@ -1266,6 +1479,11 @@ def return_api_board_action(req, board, action, rest):
 # {board} release -> api/v0.2/devices/{board}/release"
 # {board} release force -> api/v0.2/devices/{board}/release"
 # {board} status -> api/v0.2/devices/{board}
+# {board} get_resource -> api/v0.2/devices/{board}/get_resource/{resource_type}
+# {resource} pm start -> api/v0.2/resources/{resource}/power_measurement/start
+# {resource} pm stop -> api/v0.2/resources/{resource}/power_measurement/stop/token
+# {resource} pm get_data -> api/v0.2/resources/{resource}/power_measurement/get_data/token
+# {resource} pm delete -> api/v0.2/resources/{resource}/power_measurement/delete/token
 
 def do_api(req):
     log_this("in do_api")
@@ -1327,6 +1545,10 @@ def do_api(req):
             else:
                 action = parts[2]
                 rest = parts[3:]
+                if action == "power_measurement":
+                    return_api_resource_action(req, resource, action, rest)
+                    return
+
                 msg = "Unsupported elements '%s/%s' after /api/resources" % (action, "/".join(rest))
                 req.send_api_response_msg(RSLT_FAIL, msg)
                 return
