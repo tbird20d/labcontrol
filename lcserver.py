@@ -1261,6 +1261,9 @@ def return_api_board_action(req, board, action, rest):
     req.send_api_response_msg(RSLT_FAIL, msg)
 
 CAPTURE_LOG_FILENAME_FMT="/tmp/capture-log-%s.txt"
+capture_dir="/tmp"
+capture_prefix="capture-log-"
+capture_suffix=".txt"
 CAPTURE_PID_FILENAME_FMT="/tmp/capture-%s.pid"
 
 # return pid of command
@@ -1289,18 +1292,22 @@ def new_exec_command(cmd):
 # on error, token is None or empty and reason is a string with an error
 # message.  The error message should start with "Error: "
 def start_capture(req, action, resource_map, rest):
-    # FIXTHIS - look up capture_cmd in resource_map, and call it
-    # save pid in resource file
+    # look up capture_cmd in resource_map, and call it
     resource = resource_map["name"]
     capture_cmd = resource_map.get("capture_cmd")
 
     log_this("capture_cmd=" + capture_cmd)
 
-    # generate the logfile, and hand  to the capture_cmd
+    # generate the logfile path, and hand  to the capture_cmd
     # FIXTHIS - use a hardcoded logfile and pidfile for now
     token = "1234"
-    logfile = CAPTURE_LOG_FILENAME_FMT % token
-    pidfile = CAPTURE_PID_FILENAME_FMT % resource
+    fd, logpath = tempfile.mkstemp(capture_suffix, capture_prefix, capture_dir)
+    os.close(fd)
+    os.remove(logpath)
+    filename = os.path.basename(logpath)
+    token = filename[len(capture_prefix):-len(capture_suffix)]
+
+    pidfile = CAPTURE_PID_FILENAME_FMT % token
 
     if os.path.exists(pidfile):
         # FIXTHIS - in start_capture, check and see if process is still running
@@ -1310,11 +1317,12 @@ def start_capture(req, action, resource_map, rest):
     # do string interpolation from the data in the resource map
     # (adding the 'logfile' attribute)
     d = copy.deepcopy(resource_map)
-    d.update( { "logfile": logfile } )
+    d.update( { "logfile": logpath } )
 
     cmd = capture_cmd % d
     log_this("(interpolated) cmd=" + cmd)
 
+    # save pid in a file, named with the token used earlier
     pid, msg = new_exec_command(cmd)
     if pid:
         log_this("exec failure: reason=" + msg)
@@ -1331,7 +1339,7 @@ def start_capture(req, action, resource_map, rest):
 def stop_capture(req, action, resource_map, token, rest):
     resource = resource_map["name"]
 
-    pidfile = CAPTURE_PID_FILENAME_FMT % resource
+    pidfile = CAPTURE_PID_FILENAME_FMT % token
 
     if not os.path.exists(pidfile):
         return "Cannot find executing capture for %s for resource '%s'" % (action, resource)
