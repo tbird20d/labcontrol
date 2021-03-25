@@ -17,8 +17,6 @@
 #      - put authentication token in config file (that's what ebf does)
 #  - add setenv, and use for board-based commands, if the board is missing
 #    - maybe can use 'lc config default_board bbb' to get same effect?
-#  - handle ConnectionError on all request operations
-#    - put a try around main, and report problem if we can't connect?
 #  - check to verify if all imports are needed
 #
 # see lc.legacy for some code that could be re-used for future features
@@ -976,4 +974,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except requests.ConnectionError:
+        error_out("Could not connect to server.  Check that server is running\n" \
+                "and that you have the right server in your configuration file.")
+        sys.exit(1)
