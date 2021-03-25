@@ -3,13 +3,73 @@ To Do file for labcontrol:
 (See NOTES file for how to restart work)
 
 = to do =
- - implement support for /api/v0.2/devices/mine
+ - lc <board> ssh run <command> <args>
+ - lc <board> ssh upload <command> <args>
+ - lc <board> ssh download <command> <args>
+
+ - lc <board> console
+   - need interactive web session for shell
+
+ - lc <board> login (or ssh)
+
+ - integration with Fuego core
+
+ - web-based shell for web-interface
+   - for DUT serial console
+   - for ssh from host to DUT
+ - web-based webcamera view
+
+ - allow users to connect resources to boards
+ - allow users to disconnect resources from boards
+ - allow users register boards (put-board?)
+ - allow users register resources (put-resource?)
+ - allow users to update board info (lc board set <name> <value>)
+ - allow users to update resource info (lc resource set <name> <value>)
+ - support resource reservations
+
+== client (lc):
+
+== server (lcserver.py):
+ - switch lcserver.py to eliminate old request API (non-json)
+   - do_put_object
+
  - implement 'farm-status' screen to show overview of farm
    - start with same data as 'farm-status' program
    - with color coded status elements
      - uptime for each board
      - recent/running tests?? (don't tie labcontrol to Jenkins or Fuego)
- - add authentication token api
+
+ - separate web and raw objects pages
+   - top level view is for "web ui" views
+     do_show
+     do_raw
+     do_api
+   - raw view is json file object views (mostly for debugging)
+
+
+Things that work:
+ + lc config
+ + lc config <name>
+ + lc list boards
+ + lc list devices (same as lc list boards)
+ + lc mydevices
+ + lc list resources
+ + lc <board> power status
+ + lc <board> power on
+ + lc <board> power off
+ + lc <board> power reboot
+ + lc <board> status
+ + lc <board> allocate
+ + lc <board> reserve
+ + lc <board> release
+ + lc <board> release -f
+ + lc <board> get-resource <type>
+ + lc <resource> power-measurement start
+ + lc <resource> power-measurement stop <token>
+ + lc <resource> power-measurement get_data <token>
+ + lc <resource> power-measurement delete <token>
+
+ + authentication token api
    - OUTPUT=$(curl -s -k --location --request POST "$SERVER_URL/api/v0.2/token/"  --header 'Content-Type: application/json' --data-raw '{"username":"'"$USER_NAME"'" , "password":"'"$PASSWORD"'"}')
       AUTH_TOKEN=$(echo $OUTPUT|jq -r .data.token)
    - RESULT=$(echo $OUTPUT|jq -r .result)
@@ -19,44 +79,25 @@ To Do file for labcontrol:
         - requests.post(url, headers={'Content-type':'application/json',
             'Authorization': 'token %s' % access_token})
 
- - switch lc to use api paths and REST API (?)
-   + lc list boards - uses api paths and request module
-   + lc <board> power <op> - uses api paths
-   - lc <board> (reserve/allocate) /release
-
- - switch lcserver.py to eliminate old request API (non-json)
-   - do_put_object
-
- - separate web and raw objects pages
-   - top level view is for "web ui" views
-     do_show
-     do_raw
-     do_api
-   - raw view is json file object views (mostly for debugging)
-
- - support reservations
- - support users
- - allow users to connect resources to boards
- - allow users to disconnect resources from boards
- - allow users register boards
- - allow users register resources
- - allow users to update board info
- - allow users to update resource info
-
-Things that work:
- + lc list boards - using action api
- + lc list resources - using action api
- + lc <board> power status - using action api
- + lc <board> power on - using action api
- + lc <board> power off - using action api
- + lc <board> power reboot - using action api
+ (DOES wget still work, now that we require an authentication token?)
  + wget -q -O- http://localhost:8000/api/v0.2/devices - using path api
- + wget .../api/devices/bbb
- + wget .../api/devices/bbb/power
- + wget .../api/devices/bbb/power/status
- + wget .../api/devices/bbb/power/on
- + wget .../api/devices/bbb/power/off
- + wget .../api/devices/bbb/power/reboot
+ + wget .../api/v0.2/devices/bbb
+ + wget .../api/v0.2/devices/bbb/power
+ + wget .../api/v0.2/devices/bbb/power/status
+ + wget .../api/v0.2/devices/bbb/power/on
+ + wget .../api/v0.2/devices/bbb/power/off
+ + wget .../api/v0.2/devices/bbb/power/reboot
+ + wget .../api/v0.2/devices/mine
+ + wget .../api/v0.2/devices/bbb/status
+ + wget .../api/v0.2/devices/bbb/get_resource/power_measurement
+ + wget .../api/v0.2/resources/
+ + wget .../api/v0.2/resources/sdb-042
+ + wget .../api/v0.2/resources/sdb-042/power_measurement/start
+ + wget .../api/v0.2/resources/sdb-042/power_measurement/stop/1234
+ + wget .../api/v0.2/resources/sdb-042/power_measurement/get_data/1234
+ + wget .../api/v0.2/resources/sdb-042/power_measurement/delete/1234
+
+
 
 = high level to dos =
  - define schema for commands
