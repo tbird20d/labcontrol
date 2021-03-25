@@ -1,4 +1,4 @@
-LabControl is a system for controling elements of an autmoated testing lab.
+LabControl is a system for controling elements of an automated testing lab.
 This is sometimes referred to a board farm.
 
 LabControl consists of two main elements:
