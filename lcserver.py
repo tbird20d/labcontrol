@@ -55,8 +55,14 @@ import time
 import cgi
 import re
 import tempfile
-# import these as needed
-#import json
+
+# simplejson loads faster than json, use that if available
+try:
+    import simplejson as json
+except ImportError:
+    import json
+
+# import yaml as needed
 #import yaml
 import copy
 import shlex
@@ -194,7 +200,6 @@ class req_class:
     def send_api_response(self, result, data = {}):
         data["result"] = result
 
-        import json
         json_data = json.dumps(data, sort_keys=True, indent=4,
             separators=(',', ': '))
 
@@ -208,7 +213,6 @@ class req_class:
         self.send_api_response(result, { "message": msg })
 
     def send_api_list_response(self, data):
-        import json
 
         json_data = json.dumps(data, sort_keys=True, indent=4,
             separators=(',', ': '))
@@ -245,15 +249,14 @@ class req_class:
                 ufd = open(upath)
             except:
                 log_this("Error opening upath %s" % upath)
-                return user
+                continue
 
-            import json
             try:
                 udata = json.load(ufd)
             except:
                 ufd.close()
                 log_this("Error reading json data from file %s" % upath)
-                return user
+                continue
 
             #log_this("in get_user: udata= %s" % udata)
             if token == udata.get("auth_token", "not-a-valid-token"):
@@ -390,7 +393,6 @@ def do_put_object(req, obj_type):
     jfilepath = data_dir + os.sep + filename + ".json"
 
     # convert to json and save to file
-    import json
     data = json.dumps(obj_dict, sort_keys=True, indent=4,
             separators=(',', ': '))
     fout = open(jfilepath, "w")
@@ -433,7 +435,6 @@ def do_update_object(req, obj_type):
         return
 
     # read requested object file
-    import json
     fd = open(filepath, "r")
     obj_dict = json.load(fd)
     fd.close()
@@ -562,8 +563,6 @@ def old_do_query_requests(req):
     # read files and filter by attributes
     # (particularly filter on 'state')
     if match_list:
-        import json
-
         # read the first file to get the list of possible attributes
         f = match_list[0]
         with open(req_data_dir + os.sep + f) as jfd:
@@ -627,7 +626,6 @@ def do_get_request(req):
         return
 
     # read requested file
-    import json
     request_fd = open(filepath, "r")
     mydict = json.load(request_fd)
 
@@ -716,7 +714,6 @@ def show_request_table(req):
     <th>Run (results)</th>
   </tr>
 """
-    import json
     for item in filelist:
         request_fd = open(src_dir+os.sep + item, "r")
         req_dict = json.load(request_fd)
@@ -1046,7 +1043,6 @@ def get_object_map(req, obj_type, obj_name):
     if not data:
         return {}
     try:
-        import json
         obj_map = json.loads(data)
     except:
         msg = "Invalid json detected in %s '%s'" % (obj_type, obj_name)
@@ -1063,7 +1059,6 @@ def get_api_object_map(req, obj_type, obj_name):
     if not data:
         return {}
     try:
-        import json
         obj_map = json.loads(data)
     except:
         msg = "Invalid json detected in %s '%s'" % (obj_type, obj_name)
@@ -1080,7 +1075,6 @@ def save_object_data(req, obj_type, obj_name, obj_data):
 
     #log_this("in save_object_data: obj_data=%s" % obj_data)
 
-    import json
     json_data = json.dumps(obj_data, sort_keys=True, indent=4,
         separators=(',', ': '))
 
@@ -1479,6 +1473,60 @@ def return_api_resource_action(req, resource, action, rest):
     msg = "action '%s' not supported (rest='%s')" % (action, rest)
     req.send_api_response_msg(RSLT_FAIL, msg)
 
+# returns token, reason - where token is non-empty on success
+def authenticate_user(req, user, password):
+    # scan user files for matching user
+    user_dir = req.config.data_dir + "/users"
+    try:
+        user_files = os.listdir( user_dir )
+    except:
+        msg = "Error: could not read user files from " + user_dir
+        log_this(msg)
+        return None, msg
+
+    for ufile in user_files:
+        if not ufile.startswith("user-"):
+            continue
+        upath = user_dir + "/" + ufile
+        try:
+            ufd = open(upath)
+        except:
+            log_this("Error opening upath %s" % upath)
+            continue
+
+        try:
+            udata = json.load(ufd)
+        except:
+            ufd.close()
+            log_this("Error reading json data from file %s" % upath)
+            continue
+
+        #log_this("in get_user: udata= %s" % udata)
+        try:
+            user_name = udata["name"]
+        except:
+            log_this("user file '%s' is missing 'name' field" % upath)
+            continue
+
+        if user != user_name:
+            continue
+
+        # found a match - check password
+        user_password = udata.get("password", "")
+
+        if password == user_password:
+            log_this("Authenticated user '%s'" % user)
+            token = udata.get("auth_token", "")
+            if token:
+                return (token, "")
+            else:
+                return (None, "Invalid token for user '%s' on server" % user)
+        else:
+            msg = "Password mismatch on login attempt for user '%s'" % user
+            log_this(msg)
+
+    return (None, "Authentication for user '%s' failed" % user)
+
 # api paths are:
 #  lc/ebf command -> api path
 # list boards, list devices -> api/v0.2/devices/"
@@ -1494,7 +1542,7 @@ def return_api_resource_action(req, resource, action, rest):
 # {resource} pm delete -> api/v0.2/resources/{resource}/power_measurement/delete/token
 
 def do_api(req):
-    log_this("in do_api")
+    #log_this("in do_api")
     # determine api operation from path
     req_path = req.environ.get("PATH_INFO", "")
     path_parts = req_path.split("/")
@@ -1514,6 +1562,28 @@ def do_api(req):
     if not parts:
         msg = "Invalid empty path after /api"
         req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    if parts[0] == "token":
+        # return auth token for user (on successful authentication)
+        #log_this("form.value=%s" % req.form.value)
+        data = json.loads(req.form.value)
+        try:
+            #log_this("data=%s" % data)
+            user = data["username"]
+            password = data["password"]
+        except:
+            msg = "Could not parse user/password data from form"
+            log_this(msg)
+            req.send_api_response_msg(RSLT_FAIL, msg)
+            return
+
+        token, reason = authenticate_user(req, user, password)
+        if not token:
+            req.send_api_response_msg(RSLT_FAIL, reason)
+            return
+
+        req.send_api_response(RSLT_OK, { "data": { "token": token } } )
         return
 
     if parts[0] == "devices":
@@ -1581,8 +1651,13 @@ def handle_request(environ, req):
     #log_env(req)
 
     # determine action, if any
-    action = req.form.getfirst("action", "show")
-    #req.add_to_message('action="%s"<br>' % action)
+    try:
+        action = req.form.getfirst("action", "show")
+    except TypeError:
+        action = "api"
+
+    #reg.add_to_message('action="%s"' % action)
+    #log_this('action="%s"' % action)
     req.action = action
 
     # get page name (last element of path)
