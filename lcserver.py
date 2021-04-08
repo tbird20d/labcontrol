@@ -31,7 +31,7 @@
 #   + list devices
 # - actions:
 #    + support assign, release and release/force (lc allocate/release)
-#    - support api/v0.2/devices/mine (lc mydevices)
+#    + support api/v0.2/devices/mine (lc mydevices)
 # - queries:
 #   - handle regex wildcards instead of just start/end wildcards
 # - objects:
@@ -1397,16 +1397,22 @@ def set_config(req, action, resource_map, config_map, rest):
 
     log_this("config_cmd=" + config_cmd)
 
-    d = copy.deepcopy(resource_map)
-    d.update(config_map)
+    new_resource_map = copy.deepcopy(resource_map)
+    # only copy allowed items from config_map
+    for key, value in config_map.items():
+        if key in ["baud_rate"]:
+            new_resource_map[key] = value
 
-    cmd_str = config_cmd % d
+    cmd_str = config_cmd % new_resource_map
     log_this("(interpolated) cmd_str='%s'" + cmd_str)
     rcode, result = getstatusoutput(cmd_str)
     if rcode:
         msg = "Result of set-config operation on resource %s = %d\n" % (resource, rcode)
         msg += "command output='%s'" % result
         return msg
+
+    # write out updated resource_map
+    save_object_data(req, "resource", resource, new_resource_map)
 
     return None
 
@@ -1447,14 +1453,14 @@ def start_capture(req, action, resource_map, rest):
 
     # save pid in a file, named with the token used earlier
     pid, msg = new_exec_command(cmd)
-    if pid:
+    if not pid:
         log_this("exec failure: reason=" + msg)
-        fd = open(pidfile,"w")
-        fd.write(str(pid))
-        fd.close()
-    else:
-        log_this("capture pid=" + pid)
         return ("", msg)
+
+    log_this("capture pid=%d" % pid)
+    fd = open(pidfile,"w")
+    fd.write(str(pid))
+    fd.close()
 
     return (token, "")
 
@@ -1514,20 +1520,22 @@ def get_captured_data(req, action, resource_map, token, rest):
         return (None, "Cannot read capture data for %s for resource '%s'" % (action, resource))
 
     # convert to json data
-    # FIXTHIS - use hardcoded re-format operation here, for sdb data
+    # FIXTHIS - should not use hardcoded re-format operation here, for sdb data
     # should run a conversion command specified by the resource object
-    jdata = "[\n"
-    for line in log_data.split("\n"):
-        if not line:
-            continue
-        parts = line.split(",")
-        try:
-            jdata += ' { "timestamp": "%s", "voltage": "%s", "current": "%s" }\n' % (parts[0], float(parts[1])/1000.0, float(parts[2])/1000.0)
-        except:
-            log_this("Problem converting log_data line for power measurement\nline='%s'" % line)
-    jdata += "]"
+    if action == "power_measurement":
+        jdata = "[\n"
+        for line in log_data.split("\n"):
+            if not line:
+                continue
+            parts = line.split(",")
+            try:
+                jdata += ' { "timestamp": "%s", "voltage": "%s", "current": "%s" }\n' % (parts[0], float(parts[1])/1000.0, float(parts[2])/1000.0)
+            except:
+                log_this("Problem converting log_data line for power measurement\nline='%s'" % line)
+        jdata += "]"
+        return (jdata, "")
 
-    return (jdata, "")
+    return (log_data, "")
 
 # returns reason on failure, "" on success
 def delete_capture(req, res_type, resource_map, token, rest):
@@ -1575,9 +1583,9 @@ def return_api_resource_action(req, resource, res_type, rest):
     if res_type in ["power_measurement", "serial"]:
         if operation in ["stop_capture", "get_data", "delete"]:
             try:
-                token = rest[1]
+                token = rest[0]
             except IndexError:
-                msg = "Missing token for %s operation" % action
+                msg = "Missing token for %s operation" % res_type
                 req.send_api_response_msg(RSLT_FAIL, msg)
                 return
 
@@ -1610,7 +1618,7 @@ def return_api_resource_action(req, resource, res_type, rest):
             req.send_api_response(RSLT_OK)
             return
         else:
-            msg = "operation '%s' not supported for %s resource" % (operation, action)
+            msg = "operation '%s' not supported for %s resource" % (operation, res_type)
             req.send_api_response_msg(RSLT_FAIL, msg)
             return
 
