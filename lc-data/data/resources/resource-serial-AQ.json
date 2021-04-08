@@ -1,0 +1,16 @@
+{
+    "baud_rate": "115200",
+    "board": "bbb",
+    "board_feature": "ttyS1",
+    "capture_cmd": "grabserial -d %(serial_dev)s -b %(baud_rate)s -Q -o %(logfile)s",
+    "config_cmd": "stty -F %(serial_dev)s %(baud_rate)s raw -echo -echoe -echok",
+    "console_cmd": "ttc console serial-AQ",
+    "host": "timslab",
+    "name": "serial-AQ",
+    "resource": "serial-AQ",
+    "serial_dev": "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AQ017RQB-if00-port0",
+    "status_cmd": "stty -F %(serial_dev)s",
+    "type": [
+        "serial"
+    ]
+}

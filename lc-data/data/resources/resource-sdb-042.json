@@ -1,14 +1,17 @@
 {
     "name": "sdb-042",
     "resource": "sdb-042",
+    "board": "bbb",
     "host": "timslab",
     "console_cmd": "ttc console sdb-bbb",
-    "type": "power-controller",
+    "type": ["power-controller","power-measurement"],
     "console_dev": "/dev/serial/by-id/usb-wj@xnk.nu_CDB_Assist_00000042-if02",
     "off_cmd": "ttc bbb off",
     "on_cmd": "ttc bbb on",
     "status_cmd": "ttc bbb pos",
     "reboot_cmd": "ttc bbb reboot",
     "alternate_off_cmd": "echo v >%(console_dev)s",
-    "alternate_on_cmd": "echo V >%(console_dev)s"
+    "alternate_on_cmd": "echo V >%(console_dev)s",
+    "serial_dev": "/dev/serial/by-id/usb-wj@xnk.nu_CDB_Assist_00000042-if02",
+    "capture_cmd": "sdb-log-power -d %(serial_dev)s -o %(logfile)s -2 --battery -q"
 }
