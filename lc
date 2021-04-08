@@ -12,9 +12,8 @@
 # Author: Tim Bird  <tim.bird (at) sony.com>
 #
 # To Do:
-#  - add login command, and do_login
-#    - send password to server, and get authentication token
-#      - put authentication token in config file (that's what ebf does)
+#  - add support for get-endpoint - replaced with get-resource <type> <feature>
+#  - add support for set-config
 #  - add support for run
 #  - add support for upload
 #  - add support for download
@@ -32,6 +31,7 @@
 import os
 import sys
 import requests
+import urllib
 try:
     import simplejson as json
 except ImportError:
@@ -160,7 +160,7 @@ a message will be provided.
 """),
 
 "get-resource": ("Get a resource associated with a board.",
-    """Usage: lc <board> get-resource <resource_type>
+    """Usage: lc <board> get-resource <resource_type> [<feature-str>]
   Get a resource associated with a board.  The resource type can
   be one of: "power_measurement" "power_controller".
 
@@ -175,6 +175,18 @@ ex: pm_resource=$(lc bbb get-resource power_measurement)
        echo "The power management resource for board bbb is '$pm_resource'"
     else:
        echo "$pm_resource"
+"""),
+
+"set-config": ("Set configuration for a resource",
+    """Usage: lc <resource> set-config <resource_type> [<endpoint_id]
+  This command reads standard input to set the configuration of
+  a lab resource.  The input data is in json format, and the allowed
+  attributes are specific to the resource type.
+
+ex: echo "{ \\"baud_rate\\": \\"115200\\" }" | lc serial-u5 set-config serial
+    if [ "$?" == 0 ] ; then
+       echo "baud rate was set successfully"
+    fi
 """),
 
 "power-measurement": ("Perform a power measurement operation using a resource.",
@@ -196,6 +208,33 @@ ex: token=$(lc acme1 power-measurement start)
     lc acme pm stop $token
     lc acme pm get-data $token >power-log.txt
     lc acme pm delete $token
+"""),
+
+"serial": ("Perform a serial operation using a resource.",
+    """Usage: lc <resource> serial {operation}
+  Perform a serial operation on a board.
+
+  Operations:
+    start            Start capturing serial data, using the
+                     indicated resource.  lc will output a string which
+                     is a token that can be used to control this instance
+                     of serial capture (that is, to stop, get or delete
+                     the serial data).
+    stop <token>     Stop capturing serial data.
+    get-data <token> Return the captured serial data.
+    delete <token>   Delete the captured serial  data, on the server.
+
+ex: token=$(lc uart10 serial start)
+    lc uart10 serial stop $token
+    lc uart10 serial get-data $token >power-log.txt
+    lc uart10 serial delete $token
+"""),
+
+"run": ("run a command on a board",
+    """Usage: lc <board> run {command} {args}...
+  Run a command on a board. Output from the command is displayed.
+
+  The return code of the command is the exit code of lc.
 """),
 
 "help": ("Show this online help.",
@@ -674,6 +713,61 @@ def do_power(conf, options):
     # but be thorough in error handling
     error_out("Invalid operation '%s' for power command" % operation)
 
+def do_run(conf, options):
+    # board is a required first argument
+    try:
+        board = options[0]
+        del options[0]
+    except:
+        error_out("No board specified for power operation\n" + \
+                "Please specify a board from the list available with 'lc list boards'.")
+
+    if not options:
+        error_out("No power operation specified.\n" + \
+                "Please specify one of 'status', 'on', 'off', or 'reboot'.")
+
+    # FIXTHIS - not sure about just joining the args with a space
+    # what happens to single arguments with a space?
+    run_cmd = " ".join(options)
+
+    url = conf.API_URL_BASE+"api/v0.2/devices/%s/run/" % board
+
+    jdata = '{ "command": "%s", "device_ip": "*", "username":"*" }' % run_cmd
+
+    headers = { "Authorization": "token " + conf.auth_token,
+            "Content-type": "application/json"}
+
+    resp = requests.post(url, headers=headers, data=jdata)
+    if resp.status_code != 200:
+        error_out("Cannot perform 'run' operation on server")
+
+    #print("resp.content='%s'" % resp.content)
+
+    resp_data = resp.json()
+    #print("resp_data='%s'" % resp_data)
+
+    try:
+        result = resp_data["result"]
+    except:
+        error_out("Malformed response from server. Missing 'result'. resp=%s" % resp_data)
+
+    if result != RSLT_OK:
+        # print error
+        try:
+            reason = resp_data["message"]
+        except:
+            reason = "for unknown reasons"
+        error_out("Could not do operation 'power %s'. %s" % (operation, reason))
+
+    # command was performed, result was "success"
+    return_code = resp_data["data"]["return_code"]
+    output = resp_data["data"]["data"]
+    for line in output:
+        sys.stdout.write(line)
+        #sys.stdout.write(line + "\n")
+
+    sys.exit(return_code)
+
 def do_reserve(conf, options, cmd='reserve'):
     # board is a required first argument
     try:
@@ -810,8 +904,13 @@ def do_get_resource(conf, options):
         error_out("No resource type specified for get_resource operation\n" \
                 "Please specify a valid resource type.")
 
-    url = conf.API_URL_BASE+"api/v0.2/devices/%s/get_resource/%s" % \
-            (board, res_type)
+    api_url = "api/v0.2/devices/%s/get_resource/%s" % (board, res_type)
+    url = conf.API_URL_BASE + api_url
+
+    if options:
+        # make feature string suitable to append to url
+        feature_str = urllib.quote(options[0]).replace("/", "%2F")
+        url += "/" +  feature_str.replace("/", "%2F")
 
     headers = { "Authorization": "token " + conf.auth_token }
 
@@ -935,6 +1034,56 @@ def do_power_measurement(conf, options, cmd):
     # this seems unlikely, given the checks above
     # but be thorough in error handling
     error_out("Invalid operation '%s' for power_measurement command" % operation)
+
+def do_set_config(conf, options, cmd):
+    # resource is a required first argument
+    try:
+        resource = options[0]
+        del options[0]
+    except:
+        error_out("No resource specified for set-config operation\n" + \
+                "Please specify a resource associated with this board\n" + \
+                "try 'lc list resources'.")
+
+    try:
+        res_type = options[0]
+        del options[0]
+    except:
+        error_out("No resource type specified for set-config operation\n" + \
+                "Please specify a valid resource type (only 'serial' is supported)\n")
+
+    operation = "set-config"
+
+    url = conf.API_URL_BASE+"api/v0.2/resources/%s/%s/set-config" % (resource, res_type)
+    headers = { "Authorization": "token " + conf.auth_token }
+
+    # read standard input for json data
+    config_data = sys.stdin.read()
+
+    print("config data=%s" % config_data)
+
+    resp = requests.post(url, headers=headers, data=config_data)
+
+    if resp.status_code != 200:
+        error_out("Cannot perform %s %s operation on server" % (res_type, operation))
+
+    resp_data = resp.json()
+
+    try:
+        result = resp_data["result"]
+    except:
+        error_out("Malformed response from server. Missing 'result'. resp=%s" % resp_data)
+
+    if result != RSLT_OK:
+        # print error
+        try:
+            reason = resp_data["message"]
+        except:
+            reason = "for unknown reasons"
+        error_out("Could not do operation '%s %s'. From server: %s" % (res_type, operation, reason))
+
+    # operation was performed, result was "success"
+    print("Set_config operation was successful")
 
 def main():
     global verbose
@@ -1072,6 +1221,14 @@ def main():
     if command in ["power-measurement", "pm"]:
         do_power_measurement(conf, options, command)
         sys.exit(0)
+
+    if command == "set-config":
+        do_set_config(conf, options, command)
+        sys.exit(0)
+
+    if command == "run":
+        do_run(conf, options)
+        # no return here
 
     error_out("Unknown command %s" % command)
 

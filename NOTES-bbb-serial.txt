@@ -1,0 +1,52 @@
+Here is some information about beaglebone serial
+
+= Hardware =
+
+== uart pins on BBB ==
+       pins:
+        RX      TX      CTS     RTS     Device         Notes
+UART0   J1_4    J1_5                    /dev/ttyO0     BBB only
+UART1   P9_26   P9_24   P9_20   P9_19   /dev/ttyO1
+UART2   P9_22   P9_21   P8_37   P8_38   /dev/ttyO2
+UART3           P9_42   P8_36   P8_34   /dev/ttyO3     TX only
+UART4   P9_11   P9_13   P8_35   P8_33   /dev/ttyO4
+UART4   P8_38   P8_37   P8_31   P8_32   /dev/ttyO5
+
+
+/boot/uEnv.txt has capemgr.enable lines, but in my current Beaglebone (bbb)
+none of these are enabled.
+
+https://www.amazon.com/gp/product/B06ZYPLFNB/ref=ppx_yo_dt_b_asin_title_o03_s01?ie=UTF8&psc=1
+
+== cable pins ==
+Usb to serial cable pinouts:
+black = GND    -> J1_1 (BBB GND)       -> P9_2 (BBB GND)
+brown = CTS#
+red = 5V
+orange = TXD   -> J1_4 (BBB UART0 RX)  -> P9_26 (BBB UART1 RX)
+yellow = RXD   -> J1_5 (BBB UART0 TX)  -> P9_24 (BBB UART1 TX)
+green = RTS#
+
+Beablebone connector J1
+
+== Cable notes ==
+The 'AQ' cable worked on J1 connector, but...
+
+The cable worked for tx from board, but no chars were
+echo'ed on when typed on the host side in minicom.
+
+= how to find out pinmux setting on 4.4.88 kernel? =
+ * examine boot messages - look for BB-UART messages during uboot overlays
+ * use 'config-pin -q'  to see status of pins
+
+
+BeagleBone is running 4.4.88-ti-125 kernel
+
+New kernel is 4.4.155-ti-r155
+
+Some information about uboot 
+Run script /opt/scripts/tools/version.sh
+
+
+
+

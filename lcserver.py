@@ -55,6 +55,7 @@ import time
 import cgi
 import re
 import tempfile
+import urllib
 
 # simplejson loads faster than json, use that if available
 try:
@@ -69,14 +70,19 @@ import shlex
 import subprocess
 import signal
 
+debug = False
+
 debug_api_response = False
 # uncomment this to dump response data to the log file
 #debug_api_response = True
 
+# Keep track of which getstatusoutput I'm using
+using_commands_gso = False
 try:
     from subprocess import getstatusoutput
 except:
     from commands import getstatusoutput
+    using_commands_gso = True
 
 VERSION=(0,6,0)
 
@@ -97,6 +103,13 @@ RSLT_OK="success"
 def log_this(msg):
     with open(base_dir+"/lcserver.log" ,"a") as f:
         f.write("[%s] %s\n" % (get_timestamp(), msg))
+
+def dlog_this(msg):
+    global debug
+
+    if debug:
+        with open(base_dir+"/lcserver.log" ,"a") as f:
+            f.write("[%s] %s\n" % (get_timestamp(), msg))
 
 # define an instance to hold config vars
 class config_class:
@@ -794,7 +807,7 @@ def get_power_status(req, bmap):
     cmd_str = pdu_map["status_cmd"]
     rcode, status = getstatusoutput(cmd_str)
     if rcode:
-        msg = "Result of power status operation on board %s = %d" % (board_map["name"], rcode)
+        msg = "Result of power status operation on board %s = %d\n" % (bmap["name"], rcode)
         msg += "command output='%s'" % status
         return (RSLT_FAIL, msg)
 
@@ -1142,8 +1155,9 @@ def return_exec_command(req, board_map, resource_map, res_cmd):
     req.send_api_response_msg(result, msg)
 
 # rest is a list of the rest of the path
-# support actions are: get_resource, power
+# supported actions are: get_resource, power, assign, release, run
 def return_api_board_action(req, board, action, rest):
+    log_this("rest=%s" % rest)
     boards = get_object_list(req, "board")
     if board not in boards:
         msg = "Could not find board '%s' registered with server" % board
@@ -1158,18 +1172,34 @@ def return_api_board_action(req, board, action, rest):
 
     if action == "get_resource":
         res_type = rest[0]
-        if res_type not in ["power_controller", "power_measurement"]:
+        del(rest[0])
+        if res_type not in ["power_controller", "power_measurement", "serial",
+                "canbus"]:
             msg = "Error: invalid resource type '%s'" % res_type
             req.send_api_response_msg(RSLT_FAIL, msg)
             return
-        resource = board_map.get(res_type, None)
-        if not resource:
-            msg = "Error: no resource type '%s' associated with board '%s'" % \
-                     (res_type, board)
-            req.send_api_response_msg(RSLT_FAIL, msg)
+
+        if not rest:
+            resource = board_map.get(res_type, None)
+            if not resource:
+                msg = "Error: no resource type '%s' associated with board '%s'" % \
+                         (res_type, board)
+                req.send_api_response_msg(RSLT_FAIL, msg)
+                return
+
+            req.send_api_response(RSLT_OK, { "data": resource })
             return
-        req.send_api_response(RSLT_OK, { "data": resource })
-        return
+
+        if rest:
+            feature = urllib.unquote(rest[0])
+            resource, msg = find_resource(req, board, feature)
+            if not resource:
+                req.send_api_response_msg(RSLT_FAIL, msg)
+                return
+
+            req.send_api_response(RSLT_OK, { "data": resource })
+            return
+            # match it to board_endpoint in resource file
 
     if action == "power":
         pdu_map = get_connected_resource(req, board_map, "power_controller")
@@ -1251,6 +1281,43 @@ def return_api_board_action(req, board, action, rest):
         req.send_api_response(RSLT_OK)
         return
 
+    elif action == "run":
+        # check that user has board reserved
+        user = req.get_user()
+        assigned_to = board_map.get("AssignedTo", "nobody")
+
+        if user != assigned_to:
+            msg = "Device is not assigned to you. It is assigned to '%s'.\nCannot run command." % assigned_to
+            req.send_api_response_msg(RSLT_FAIL, msg)
+            return
+
+        # This seems optimistic - maybe add some error handling here
+        command_from_user = json.loads(req.form.value)["command"]
+
+        d = copy.deepcopy(board_map)
+        run_cmd = board_map.get("run_cmd", None)
+        if not run_cmd:
+            msg = "Device '%s' is not configured to run commands" % board
+            req.send_api_response_msg(RSLT_FAIL, msg)
+            return
+
+        d["command"] = command_from_user
+        cmd = run_cmd % d
+
+        log_this("About to run_command('%s')" % cmd)
+
+        lines, rcode, msg = run_command(cmd)
+        if msg:
+            req.send_api_response_msg(RSLT_FAIL, msg)
+            return
+
+        data = { "return_code": rcode, "data": lines }
+        jdata = json.dumps(data)
+        log_this("jdata='%s'" % jdata)
+
+        req.send_api_response(RSLT_OK, { "data": data } )
+        return
+
     msg = "action '%s' not supported (rest='%s')" % (action, rest)
     req.send_api_response_msg(RSLT_FAIL, msg)
 
@@ -1264,6 +1331,7 @@ CAPTURE_PID_FILENAME_FMT="/tmp/capture-%s.pid"
 # only execute a single-line command, for now
 def new_exec_command(cmd):
     from subprocess import Popen, PIPE, STDOUT
+
 
     exec_args = shlex.split(cmd)
 
@@ -1280,6 +1348,67 @@ def new_exec_command(cmd):
 
     pid = proc.pid
     return (pid, "OK")
+
+# execute a single-line command, and return:
+# lines, return_code, reason
+# where lines is the command output, and return_code is the exit code
+# of the command.  On failure, reason is non-empty and contains
+# a description of the problem.
+def run_command(cmd):
+    from subprocess import Popen, PIPE, STDOUT
+
+    exec_args = shlex.split(cmd)
+
+    # FIXTHIS - add more stuff here
+
+    try:
+        proc = Popen(exec_args, stdin=PIPE, stdout=PIPE, stderr=PIPE, close_fds=True)
+    except subprocess.CalledProcessError as e:
+        msg = "Can't run command '%s' in exec_command" % cmd
+        return (0, msg)
+    except OSError as error:
+        msg = error + " trying to execute command '%s'" % cmd
+        return (0, msg)
+
+    pid = proc.pid
+    try:
+        output, errs = proc.communicate(timeout=60)
+    except TimeoutExpired:
+        proc.kill()
+        output, errs = proc.communicate()
+
+    # FIXTHIS - run_command discards error output
+
+    rcode = proc.returncode
+    log_this("rcode=%s" % rcode)
+
+    log_this("output='%s'" % output)
+    # keep the newlines on the lines
+    lines = output.splitlines(True)
+    #lines = output.split("\n")
+    return (lines, rcode, None)
+
+# returns non-empty reason string on failure
+def set_config(req, action, resource_map, config_map, rest):
+    resource = resource_map["name"]
+    config_cmd = resource_map.get("config_cmd", "")
+    if not config_cmd:
+        return "Could not find 'config_cmd' for resource resource %s" %  resource
+
+    log_this("config_cmd=" + config_cmd)
+
+    d = copy.deepcopy(resource_map)
+    d.update(config_map)
+
+    cmd_str = config_cmd % d
+    log_this("(interpolated) cmd_str='%s'" + cmd_str)
+    rcode, result = getstatusoutput(cmd_str)
+    if rcode:
+        msg = "Result of set-config operation on resource %s = %d\n" % (resource, rcode)
+        msg += "command output='%s'" % result
+        return msg
+
+    return None
 
 
 # returns token, reason
@@ -1311,7 +1440,7 @@ def start_capture(req, action, resource_map, rest):
     # do string interpolation from the data in the resource map
     # (adding the 'logfile' attribute)
     d = copy.deepcopy(resource_map)
-    d.update( { "logfile": logpath } )
+    d["logfile"] = logpath
 
     cmd = capture_cmd % d
     log_this("(interpolated) cmd=" + cmd)
@@ -1401,19 +1530,19 @@ def get_captured_data(req, action, resource_map, token, rest):
     return (jdata, "")
 
 # returns reason on failure, "" on success
-def delete_capture(req, action, resource_map, token, rest):
+def delete_capture(req, res_type, resource_map, token, rest):
     resource = resource_map["name"]
 
     logfile = CAPTURE_LOG_FILENAME_FMT % token
     if not os.path.exists(logfile):
-        return "Cannot captured data for %s for resource '%s'" % (action, resource)
+        return "Cannot delete captured data for resource '%s'" % resource
     os.remove(logfile)
     return ""
 
 
 # rest is a list of the rest of the path
 # support actions are: get_resource, power
-def return_api_resource_action(req, resource, action, rest):
+def return_api_resource_action(req, resource, res_type, rest):
     resources = get_object_list(req, "resource")
     if resource not in resources:
         msg = "Could not find resource '%s' registered with server" % resource
@@ -1426,51 +1555,67 @@ def return_api_resource_action(req, resource, action, rest):
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
-    if action == "power_measurement":
-        operation = rest[0]
+    operation = rest[0]
+    del(rest[0])
+
+    if res_type == "serial" and operation == "set-config":
+        config_data = req.form.value
+        log_this("config_data=%s" % config_data)
+
+        config_map = json.loads(config_data)
+        log_this("config_map=%s" % config_map)
+
+        msg = set_config(req, res_type, resource_map, config_map, rest)
+        if msg:
+            req.send_api_response_msg(RSLT_FAIL, msg)
+        else:
+            req.send_api_response(RSLT_OK)
+        return
+
+    if res_type in ["power_measurement", "serial"]:
         if operation in ["stop_capture", "get_data", "delete"]:
             try:
                 token = rest[1]
             except IndexError:
-                msg = "Missing token for power_measurement operation"
+                msg = "Missing token for %s operation" % action
                 req.send_api_response_msg(RSLT_FAIL, msg)
                 return
 
         if operation == "start_capture":
-            token, reason = start_capture(req, action, resource_map, rest[1:])
+            token, reason = start_capture(req, res_type, resource_map, rest[1:])
             if not token:
                 req.send_api_response_msg(RSLT_FAIL, reason)
                 return
             req.send_api_response(RSLT_OK, { "data": token } )
             return
         elif operation == "stop_capture":
-            reason = stop_capture(req, action, resource_map, token, rest[2:])
+            reason = stop_capture(req, res_type, resource_map, token, rest[2:])
             if reason:
                 req.send_api_response_msg(RSLT_FAIL, reason)
                 return
             req.send_api_response(RSLT_OK)
             return
         elif operation == "get_data":
-            data, reason = get_captured_data(req, action, resource_map, token, rest[2:])
+            data, reason = get_captured_data(req, res_type, resource_map, token, rest[2:])
             if reason:
                 req.send_api_response_msg(RSLT_FAIL, reason)
                 return
             req.send_api_response(RSLT_OK, { "data": data } )
             return
         elif operation == "delete":
-            reason = delete_capture(req, action, resource_map, token, rest[2:])
+            reason = delete_capture(req, res_type, resource_map, token, rest[2:])
             if reason:
                 req.send_api_response_msg(RSLT_FAIL, reason)
                 return
             req.send_api_response(RSLT_OK)
             return
         else:
-            msg = "operation '%s' not supported for power_measurement" % (operation)
+            msg = "operation '%s' not supported for %s resource" % (operation, action)
             req.send_api_response_msg(RSLT_FAIL, msg)
             return
 
 
-    msg = "action '%s' not supported (rest='%s')" % (action, rest)
+    msg = "resource type '%s' not supported (rest='%s')" % (res_type, rest)
     req.send_api_response_msg(RSLT_FAIL, msg)
 
 # returns token, reason - where token is non-empty on success
@@ -1527,6 +1672,57 @@ def authenticate_user(req, user, password):
 
     return (None, "Authentication for user '%s' failed" % user)
 
+# find a resource that applies to a particular board feature
+# returns resource, reason - where resource is non-empty on success
+# logs any errors encountered
+def find_resource(req, board, feature):
+    # scan resource files for a match
+    res_dir = req.config.data_dir + "/resources"
+    try:
+        res_files = os.listdir( res_dir )
+    except:
+        msg = "Error: could not read resource files from " + res_dir
+        log_this(msg)
+        return None, msg
+
+    for rfile in res_files:
+        dlog_this("checking rfile %s" % rfile)
+        if not rfile.startswith("resource-"):
+            continue
+        rpath = res_dir + "/" + rfile
+        try:
+            rfd = open(rpath)
+        except:
+            log_this("Error opening rpath %s" % rpath)
+            continue
+
+        try:
+            rdata = json.load(rfd)
+        except:
+            rfd.close()
+            log_this("Error reading json data from file %s" % rpath)
+            continue
+
+        dlog_this("in find_resource...: rdata= %s" % rdata)
+        try:
+            rboard = rdata["board"]
+        except:
+            dlog_this("resource file '%s' is missing 'board' field" % rpath)
+            continue
+
+        if board != rboard:
+            continue
+
+        # found a match - check board-endpoint against feature string
+        board_feature = rdata.get("board_feature", "")
+
+        dlog_this("feature=%s, board_feature=%s" % (feature, board_feature))
+
+        if feature == board_feature:
+            return (rdata["name"], None)
+
+    return (None, "No match found for '%s:%s'" % (board, feature))
+
 # api paths are:
 #  lc/ebf command -> api path
 # list boards, list devices -> api/v0.2/devices/"
@@ -1545,6 +1741,7 @@ def do_api(req):
     #log_this("in do_api")
     # determine api operation from path
     req_path = req.environ.get("PATH_INFO", "")
+    #log_this("TRB: req_path=%s" % req_path)
     path_parts = req_path.split("/")
     # get the path elements after 'api'
     parts = path_parts[path_parts.index("api")+1:]
@@ -1621,13 +1818,13 @@ def do_api(req):
                 return_api_object_data(req, "resource", resource)
                 return
             else:
-                action = parts[2]
+                res_type = parts[2]
                 rest = parts[3:]
-                if action == "power_measurement":
-                    return_api_resource_action(req, resource, action, rest)
+                if res_type in ["power_measurement", "serial", "canbus"]:
+                    return_api_resource_action(req, resource, res_type, rest)
                     return
 
-                msg = "Unsupported elements '%s/%s' after /api/resources" % (action, "/".join(rest))
+                msg = "Unsupported elements '%s/%s' after /api/resources" % (res_type, "/".join(rest))
                 req.send_api_response_msg(RSLT_FAIL, msg)
                 return
     elif parts[0] == "requests":
