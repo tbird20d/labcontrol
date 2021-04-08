@@ -1395,20 +1395,28 @@ def set_config(req, action, resource_map, config_map, rest):
     if not config_cmd:
         return "Could not find 'config_cmd' for resource resource %s" %  resource
 
-    log_this("config_cmd=" + config_cmd)
+    dlog_this("config_cmd=" + config_cmd)
+
+    allowed_config_items=["baud_rate"]
 
     new_resource_map = copy.deepcopy(resource_map)
     # only copy allowed items from config_map
     for key, value in config_map.items():
-        if key in ["baud_rate"]:
+        if key in allowed_config_items:
             new_resource_map[key] = value
 
     cmd_str = config_cmd % new_resource_map
-    log_this("(interpolated) cmd_str='%s'" + cmd_str)
+    dlog_this("(interpolated) cmd_str='%s'" + cmd_str)
     rcode, result = getstatusoutput(cmd_str)
     if rcode:
         msg = "Result of set-config operation on resource %s = %d\n" % (resource, rcode)
-        msg += "command output='%s'" % result
+
+        # Apparently, 'stty' error output uses some high unicode code points,
+        # (outside the ascii range), which cause an exception if you don't
+        # decode them. (ie, they get auto-decoded as ascii)
+        # Have I told you, lately, how much I hate python unicode handling??
+        output = result.decode('utf8', errors='ignore')
+        msg += "command output (decoded)='" + output + "'"
         return msg
 
     # write out updated resource_map
@@ -1571,7 +1579,7 @@ def return_api_resource_action(req, resource, res_type, rest):
         log_this("config_data=%s" % config_data)
 
         config_map = json.loads(config_data)
-        log_this("config_map=%s" % config_map)
+        dlog_this("config_map=%s" % config_map)
 
         msg = set_config(req, res_type, resource_map, config_map, rest)
         if msg:
