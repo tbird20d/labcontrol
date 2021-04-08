@@ -1000,7 +1000,7 @@ def do_power_measurement(conf, options, cmd):
             reason = resp_data["message"]
         except:
             reason = "for unknown reasons"
-        error_out("Could not do operation 'power_measurement %s'. From server: %s" % (operation, reason))
+        error_out("Could not do operation 'power_measurement %s'. From server:\n %s" % (operation, reason))
 
     # operation was performed, result was "success"
 
@@ -1083,7 +1083,8 @@ def do_set_config(conf, options, cmd):
             reason = resp_data["message"]
         except:
             reason = "for unknown reasons"
-        error_out("Could not do operation '%s %s'. From server: %s" % (res_type, operation, reason))
+        reason = "%s" % reason
+        error_out("Could not do operation '%s %s'. From server:\n %s" % (res_type, operation, reason))
 
     # operation was performed, result was "success"
     print("Set_config operation was successful")
@@ -1146,7 +1147,7 @@ def do_serial(conf, options, cmd):
             reason = resp_data["message"]
         except:
             reason = "for unknown reasons"
-        error_out("Could not do operation 'serial %s'. From server: %s" % (operation, reason))
+        error_out("Could not do operation 'serial %s'. From server:\n %s" % (operation, reason))
 
     # operation was performed, result was "success"
 
