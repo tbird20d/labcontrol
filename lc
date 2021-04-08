@@ -1060,7 +1060,7 @@ def do_set_config(conf, options, cmd):
     # read standard input for json data
     config_data = sys.stdin.read()
 
-    print("config data=%s" % config_data)
+    #print("config data=%s" % config_data)
 
     resp = requests.post(url, headers=headers, data=config_data)
 
