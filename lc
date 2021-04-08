@@ -30,6 +30,12 @@
 
 import os
 import sys
+
+# avoid UnicodeEncodeError exceptions by switching my default encoding
+if sys.version_info[0] < 3:
+    reload(sys)
+    sys.setdefaultencoding('utf8')
+
 import requests
 import urllib
 try:
