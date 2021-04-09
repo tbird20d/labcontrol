@@ -69,6 +69,7 @@ import copy
 import shlex
 import subprocess
 import signal
+import threading   # used for Timer objects
 
 debug = False
 
@@ -1349,6 +1350,11 @@ def new_exec_command(cmd):
     pid = proc.pid
     return (pid, "OK")
 
+def run_timeout(proc):
+    log_this("run_timeout fired! - killing process %s" % proc.pid)
+    proc.kill()
+
+
 # execute a single-line command, and return:
 # lines, return_code, reason
 # where lines is the command output, and return_code is the exit code
@@ -1370,12 +1376,24 @@ def run_command(cmd):
         msg = error + " trying to execute command '%s'" % cmd
         return (0, msg)
 
+    # don't allow command to run for more than 60 seconds
+    timer = threading.Timer(60.0, run_timeout, [proc])
+    timer.start()
+
+    # we may want to have a different interface here, that allows
+    # starting the command, and returning partial data after 10 seconds
+    # followed by periodic queries from the client to get additional data
+    # before finally yeilding the final data and return code
+    # we would need a file buffer and pid system, like for the capture code.
+
     pid = proc.pid
     try:
-        output, errs = proc.communicate(timeout=60)
-    except TimeoutExpired:
+        output, errs = proc.communicate()
+    except:
         proc.kill()
         output, errs = proc.communicate()
+
+    timer.cancel()
 
     # FIXTHIS - run_command discards error output
 
