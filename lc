@@ -12,9 +12,7 @@
 # Author: Tim Bird  <tim.bird (at) sony.com>
 #
 # To Do:
-#  - add support for get-endpoint - replaced with get-resource <type> <feature>
-#  - add support for set-config
-#  - add support for run
+#  - add support for put-data
 #  - add support for upload
 #  - add support for download
 #  - make lc work with ebf server
@@ -229,11 +227,14 @@ ex: token=$(lc acme1 power-measurement start)
     stop <token>     Stop capturing serial data.
     get-data <token> Return the captured serial data.
     delete <token>   Delete the captured serial  data, on the server.
+    put-data         Put data to the serial resource.  Data is read from
+                     standard input.
 
 ex: token=$(lc uart10 serial start)
     lc uart10 serial stop $token
     lc uart10 serial get-data $token >power-log.txt
     lc uart10 serial delete $token
+    cat testfile | lc uart10 serial put-data
 """),
 
 "run": ("run a command on a board",
@@ -961,24 +962,24 @@ def do_power_measurement(conf, options, cmd):
                 "try 'lc list resources'.")
 
     # figure out what power operation we're performing
-    # should be one of 'start', 'stop', 'get_data', 'delete'
+    # should be one of 'start', 'stop', 'get-data', 'delete'
     try:
         operation = options[0].lower()
         del options[0]
     except:
         error_out("No power_measurement operation specified.\n" + \
-                "Please specify one of 'start', 'stop', 'get_data', or 'delete'.")
+                "Please specify one of 'start', 'stop', 'get-data', or 'delete'.")
 
-    if operation not in ["start", "stop", "get_data", "delete"]:
+    if operation not in ["start", "stop", "get-data", "delete"]:
         error_out("Invalid power operation specified.\n" + \
-                "Please specify one of 'start', 'stop', 'get_data', or 'delete'.")
+                "Please specify one of 'start', 'stop', 'get-data', or 'delete'.")
 
-    url_op  = { "start": "start_capture", "stop": "stop_capture", "get_data": "get_data", "delete": "delete" }[operation]
+    url_op  = { "start": "start_capture", "stop": "stop_capture", "get-data": "get-data", "delete": "delete" }[operation]
 
     url = conf.API_URL_BASE+"api/v0.2/resources/%s/power_measurement/%s" % (resource, url_op)
     headers = { "Authorization": "token " + conf.auth_token }
 
-    if operation in ["stop", "get_data", "delete"]:
+    if operation in ["stop", "get-data", "delete"]:
         try:
             token = options[0]
             del options[0]
@@ -1027,7 +1028,7 @@ def do_power_measurement(conf, options, cmd):
     if operation == "delete":
         print "Capture was deleted from server."
         return
-    if operation == "get_data":
+    if operation == "get-data":
         # write json capture data to stdout
         try:
             data = resp_data["data"]
@@ -1108,24 +1109,24 @@ def do_serial(conf, options, cmd):
                 "try 'lc list resources'.")
 
     # figure out what power operation we're performing
-    # should be one of 'start', 'stop', 'get_data', 'delete'
+    # should be one of 'start', 'stop', 'get-data', 'delete'
     try:
         operation = options[0].lower()
         del options[0]
     except:
         error_out("No serial operation specified.\n" + \
-                "Please specify one of 'start', 'stop', 'get_data', or 'delete'.")
+                "Please specify one of 'start', 'stop', 'get-data', or 'delete'.")
 
-    if operation not in ["start", "stop", "get_data", "delete"]:
+    if operation not in ["start", "stop", "get-data", "delete", "put-data"]:
         error_out("Invalid serial specified.\n" + \
-                "Please specify one of 'start', 'stop', 'get_data', or 'delete'.")
+                "Please specify one of 'start', 'stop', 'get-data', or 'delete'.")
 
-    url_op  = { "start": "start_capture", "stop": "stop_capture", "get_data": "get_data", "delete": "delete" }[operation]
+    url_op  = { "start": "start_capture", "stop": "stop_capture", "get-data": "get-data", "delete": "delete", "put-data": "put-data" }[operation]
 
     url = conf.API_URL_BASE+"api/v0.2/resources/%s/serial/%s" % (resource, url_op)
     headers = { "Authorization": "token " + conf.auth_token }
 
-    if operation in ["stop", "get_data", "delete"]:
+    if operation in ["stop", "get-data", "delete"]:
         try:
             token = options[0]
             del options[0]
@@ -1134,6 +1135,10 @@ def do_serial(conf, options, cmd):
         url += "/%s" % token
         # FIXTHIS - serial operation should be a 'post' according to the spec
         resp = requests.get(url, headers=headers)
+    elif operation == "put-data":
+        # read data to put, from standard input
+        data = sys.stdin.read()
+        resp = requests.post(url, headers=headers, data=data)
     else:
         resp = requests.get(url, headers=headers)
 
@@ -1169,19 +1174,22 @@ def do_serial(conf, options, cmd):
         return
 
     if operation == "stop":
-        print "Capture was stopped."
+        print("Capture was stopped.")
         return
     if operation == "delete":
-        print "Capture was deleted from server."
+        print("Capture was deleted from server.")
         return
-    if operation == "get_data":
+    if operation == "get-data":
         # write json capture data to stdout
         try:
             data = resp_data["data"]
         except:
-            error_out("Missing captureed from server.")
+            error_out("Missing captured from server.")
 
         print(data)
+        return
+    if operation == "put-data":
+        print("Data was put successfully.")
         return
 
     # this seems unlikely, given the checks above
