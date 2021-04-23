@@ -72,6 +72,7 @@ import signal
 import threading   # used for Timer objects
 
 debug = False
+#debug = True
 
 debug_api_response = False
 # uncomment this to dump response data to the log file
@@ -1328,6 +1329,10 @@ capture_prefix="capture-log-"
 capture_suffix=".txt"
 CAPTURE_PID_FILENAME_FMT="/tmp/capture-%s.pid"
 
+data_dir="/tmp"
+data_prefix="data-file-"
+data_suffix=".data"
+
 # return pid of command
 # only execute a single-line command, for now
 def new_exec_command(cmd):
@@ -1533,7 +1538,7 @@ def get_captured_data(req, action, resource_map, token, rest):
     logfile = CAPTURE_LOG_FILENAME_FMT % token
 
     if not os.path.exists(logfile):
-        return (None, "Cannot find capture log for %s for resource '%s'" % (action, resource))
+        return (None, "Cannot find capture log for %s token %s for resource '%s'" % (action, token, resource))
 
     try:
         fd = open(logfile, "r")
@@ -1573,6 +1578,36 @@ def delete_capture(req, res_type, resource_map, token, rest):
     os.remove(logfile)
     return ""
 
+def put_data(req, action, resource_map, rest):
+    resource = resource_map["name"]
+    put_cmd = resource_map.get("put_cmd", "")
+    if not put_cmd:
+        return "Could not find 'put_cmd' for resource resource %s" %  resource
+    dlog_this("put_cmd=" + put_cmd)
+
+    # put data into a file
+    data = req.form.value
+    log_this("data=%s" % data)
+
+    fd, datapath = tempfile.mkstemp(data_suffix, data_prefix, data_dir)
+    os.write(fd, data)
+    os.close(fd)
+
+    d = copy.deepcopy(resource_map)
+    d["datafile"] = datapath
+
+    cmd_str = put_cmd % d
+    dlog_this("(interpolated) cmd_str='%s'" + cmd_str)
+    rcode, result = getstatusoutput(cmd_str)
+    os.remove(datapath)
+    if rcode:
+        msg = "Result of put operation on resource %s = %d\n" % (resource, rcode)
+        output = result.decode('utf8', errors='ignore')
+        msg += "command output (decoded)='" + output + "'"
+        return msg
+
+    return None
+
 
 # rest is a list of the rest of the path
 # support actions are: get_resource, power
@@ -1607,7 +1642,7 @@ def return_api_resource_action(req, resource, res_type, rest):
         return
 
     if res_type in ["power_measurement", "serial"]:
-        if operation in ["stop_capture", "get_data", "delete"]:
+        if operation in ["stop_capture", "get-data", "delete"]:
             try:
                 token = rest[0]
             except IndexError:
@@ -1629,7 +1664,7 @@ def return_api_resource_action(req, resource, res_type, rest):
                 return
             req.send_api_response(RSLT_OK)
             return
-        elif operation == "get_data":
+        elif operation == "get-data":
             data, reason = get_captured_data(req, res_type, resource_map, token, rest[2:])
             if reason:
                 req.send_api_response_msg(RSLT_FAIL, reason)
@@ -1638,6 +1673,13 @@ def return_api_resource_action(req, resource, res_type, rest):
             return
         elif operation == "delete":
             reason = delete_capture(req, res_type, resource_map, token, rest[2:])
+            if reason:
+                req.send_api_response_msg(RSLT_FAIL, reason)
+                return
+            req.send_api_response(RSLT_OK)
+            return
+        elif operation == "put-data":
+            reason = put_data(req, res_type, resource_map, rest)
             if reason:
                 req.send_api_response_msg(RSLT_FAIL, reason)
                 return
@@ -1768,8 +1810,13 @@ def find_resource(req, board, feature):
 # {board} get_resource -> api/v0.2/devices/{board}/get_resource/{resource_type}
 # {resource} pm start -> api/v0.2/resources/{resource}/power_measurement/start
 # {resource} pm stop -> api/v0.2/resources/{resource}/power_measurement/stop/token
-# {resource} pm get_data -> api/v0.2/resources/{resource}/power_measurement/get_data/token
+# {resource} pm get-data -> api/v0.2/resources/{resource}/power_measurement/get-data/token
 # {resource} pm delete -> api/v0.2/resources/{resource}/power_measurement/delete/token
+# {resource} serial start -> api/v0.2/resources/{resource}/serial/start
+# {resource} serial stop -> api/v0.2/resources/{resource}/serial/stop/token
+# {resource} serial get-data -> api/v0.2/resources/{resource}/serial/get-data/token
+# {resource} serial delete -> api/v0.2/resources/{resource}/serial/delete/token
+# {resource} serial put-data -> POST api/v0.2/resources/{resource}/serial/put-data
 
 def do_api(req):
     #log_this("in do_api")
