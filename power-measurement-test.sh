@@ -60,7 +60,7 @@ $CLIENT $RESOURCE power-measurement stop $token || \
 echo "Getting data"
 
 echo "Here is the data:"
-$CLIENT $RESOURCE power-measurement get_data $token || \
+$CLIENT $RESOURCE power-measurement get-data $token || \
     error_out "Could not get power data with $CLIENT, using token $token"
 
 echo "Deleting the data on the server"

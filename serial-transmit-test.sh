@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# serial-transmit-test.sh - use lc to a serial port test
+# serial-transmit-test.sh - use lc to do a serial port test
 #
 # This is a very simple test, sending data from the DUT serial port
 # to an endpoint in the lab
@@ -8,10 +8,10 @@
 # outline:
 #  discover lab endpoint for DUT serial connection
 #  for each baud-rate:
-#    set configuration of lab endpoint
 #    set configuration of DUT serial device
+#    set configuration of lab endpoint
 #    start capture for lab endpoint
-#    transmit (write data) to DUT serial device
+#    write data to DUT serial device (ie transmit data)
 #    get_data from lab capture
 #    compare data - test success or failure
 #    delete lab capture
@@ -128,7 +128,7 @@ test_one_rate() {
     TESTCASE="Check transmission at baud-rate $BAUD_RATE"
     v_echo "Configuring for baud rate $BAUD_RATE"
 
-    # Configure baud rate for both DUT, then lab endpoint
+    # Configure baud rate for both the DUT and lab endpoint
     stty -F $DEVICE $BAUD_RATE raw -echo -echoe -echok
     if [ "$?" != "0" ] ; then
         fail "$TESTCASE" "Could not set baud rate $BAUD_RATE for $BOARD:$DEVICE_ID"
