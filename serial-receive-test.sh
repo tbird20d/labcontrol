@@ -1,18 +1,18 @@
 #!/bin/sh
 #
-# serial-transmit-test.sh - use lc to do a serial port test
+# serial-receive-test.sh - use lc to perform a serial port test
 #
-# This is a very simple test, sending data from the DUT serial port
-# to an endpoint in the lab
+# This is a very simple test, sending data from the lab serial port
+# to a serial port on the DUT
 #
 # outline:
-#  discover lab endpoint for DUT serial connection
+#  discover lab endpoint for the DUT serial connection
 #  for each baud-rate:
 #    set configuration of DUT serial device
 #    set configuration of lab endpoint
-#    start capture for lab endpoint
-#    write data to DUT serial device (ie transmit data)
-#    get data from lab capture
+#    start capture for DUT endpoint
+#    transmit (write data) to the lab serial device
+#    stop capture for DUT endpoint
 #    compare data - test success or failure
 #    delete lab capture
 #
@@ -29,7 +29,7 @@ error_out() {
 # parse arguments
 if [ "$1" = "-h" -o "$1" = "--help" ] ; then
     cat <<HERE
-Usage: serial-transmit-test.sh [-h] [-v] <board> <device_id> <device> <baud_rate1> ...
+Usage: serial-receive-test.sh [-h] [-v] <board> <device_id> <device> <baud_rate1> ...
 
 Transmit data over a serial port to an endpoint off this board.
 Arguments:
@@ -125,16 +125,17 @@ echo "Starting serial transmission test"
 v_echo "RESOURCE=$RESOURCE"
 
 test_one_rate() {
-    TESTCASE="Check transmission at baud-rate $BAUD_RATE"
+    TESTCASE="Check reception at baud-rate $BAUD_RATE"
     v_echo "Configuring for baud rate $BAUD_RATE"
 
-    # Configure baud rate for both the DUT and lab endpoint
+    # Configure baud rate for DUT and lab endpoint
     stty -F $DEVICE $BAUD_RATE raw -echo -echoe -echok
     if [ "$?" != "0" ] ; then
         fail "$TESTCASE" "Could not set baud rate $BAUD_RATE for $BOARD:$DEVICE_ID"
         return
     fi
 
+    # send some configuration JSON to the server
     echo "{ \"baud_rate\": \"$BAUD_RATE\" }" | \
         $CLIENT $RESOURCE set-config serial
     if [ "$?" != "0" ] ; then
@@ -142,42 +143,32 @@ test_one_rate() {
         return
     fi
 
-    v_echo "Capturing data at lab resource"
-    TOKEN="$($CLIENT $RESOURCE serial start)"
-    if [ "$?" != "0" ] ; then
-        fail "$TESTCASE" "Could not start serial capture with $RESOURCE"
-        return
-    fi
-
-    # use for debugging
-    #echo "capture token=$TOKEN"
+    v_echo "Capturing data at the board serial port"
+    nohup cat $DEVICE >/tmp/serial_received_data &
 
     # give time for receiver to fully settle - I'm not sure this is needed
-    sleep 0.5
+    sleep 0.3
 
-    v_echo "Transmitting data from DUT"
-    echo -n "$SEND_DATA" >$DEVICE
+    v_echo "Transmitting data from lab"
+    echo $SEND_DATA | $CLIENT $RESOURCE serial put-data "$SEND_DATA"
 
-    v_echo "Stopping serial capture"
+    # give time for receiver to receive data - I'm not sure this is needed
+    sleep 0.3
 
-    $CLIENT $RESOURCE serial stop $TOKEN
-    if [ "$?" != "0" ] ; then
-        fail "$TESTCASE" "Could not stop serial capture"
-        return
+    # don't stop if an error occurs trying to kill the 'cat'
+    sync
+    set +e
+    CAT_PID=$(ps aux | grep "[c]at $DEVICE" | cut -b 9-15)
+    v_echo "Stopping serial capture (pid=$CAT_PID)"
+    if [ -n "$CAT_PID" ] ; then
+       kill -9 $CAT_PID
     fi
+    set -e
 
     v_echo "Getting data"
 
-    RECEIVED_DATA="$($CLIENT $RESOURCE serial get-data $TOKEN)"
-    if [ "$?" != "0" ] ; then
-        fail "$TESTCASE" "Could not get serial data"
-        return
-    fi
-
-    v_echo "Deleting the data on the server"
-
-    $CLIENT $RESOURCE serial delete $TOKEN || \
-        echo "Warning: Could not delete data on server"
+    RECEIVED_DATA=$(cat /tmp/serial_received_data)
+    rm /tmp/serial_received_data
 
     v_echo "SEND_DATA=$SEND_DATA"
     v_echo "RECIEVED_DATA=$RECEIVED_DATA"

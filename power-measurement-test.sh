@@ -31,7 +31,7 @@ echo "Using client $CLIENT with board $BOARD"
 
 echo "Getting power measurement resource for board"
 
-RESOURCE=$($CLIENT $BOARD get-resource power_measurement)
+RESOURCE=$($CLIENT $BOARD get-resource power-measurement)
 if [ "$?" != "0" ] ; then
     error_out "Could not get power measurement resource"
 fi

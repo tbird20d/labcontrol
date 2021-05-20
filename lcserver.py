@@ -1175,7 +1175,7 @@ def return_api_board_action(req, board, action, rest):
     if action == "get_resource":
         res_type = rest[0]
         del(rest[0])
-        if res_type not in ["power_controller", "power_measurement", "serial",
+        if res_type not in ["power-controller", "power-measurement", "serial",
                 "canbus"]:
             msg = "Error: invalid resource type '%s'" % res_type
             req.send_api_response_msg(RSLT_FAIL, msg)
@@ -1470,7 +1470,7 @@ def start_capture(req, action, resource_map, rest):
     pidfile = CAPTURE_PID_FILENAME_FMT % token
 
     if os.path.exists(pidfile):
-        # FIXTHIS - in start_capture, check and see if process is still running
+        # FIXTHIS - in start_capture(), check if process is still running
         # if not, just remove pidfile, and continue
         return ("", "Capture is already running for resource %s" % resource)
 
@@ -1553,7 +1553,7 @@ def get_captured_data(req, action, resource_map, token, rest):
     # convert to json data
     # FIXTHIS - should not use hardcoded re-format operation here, for sdb data
     # should run a conversion command specified by the resource object
-    if action == "power_measurement":
+    if action == "power-measurement":
         jdata = "[\n"
         for line in log_data.split("\n"):
             if not line:
@@ -1641,8 +1641,8 @@ def return_api_resource_action(req, resource, res_type, rest):
             req.send_api_response(RSLT_OK)
         return
 
-    if res_type in ["power_measurement", "serial"]:
-        if operation in ["stop_capture", "get-data", "delete"]:
+    if res_type in ["power-measurement", "serial"]:
+        if operation in ["stop-capture", "get-data", "delete"]:
             try:
                 token = rest[0]
             except IndexError:
@@ -1650,14 +1650,14 @@ def return_api_resource_action(req, resource, res_type, rest):
                 req.send_api_response_msg(RSLT_FAIL, msg)
                 return
 
-        if operation == "start_capture":
+        if operation == "start-capture":
             token, reason = start_capture(req, res_type, resource_map, rest[1:])
             if not token:
                 req.send_api_response_msg(RSLT_FAIL, reason)
                 return
             req.send_api_response(RSLT_OK, { "data": token } )
             return
-        elif operation == "stop_capture":
+        elif operation == "stop-capture":
             reason = stop_capture(req, res_type, resource_map, token, rest[2:])
             if reason:
                 req.send_api_response_msg(RSLT_FAIL, reason)
@@ -1808,15 +1808,16 @@ def find_resource(req, board, feature):
 # {board} release force -> api/v0.2/devices/{board}/release"
 # {board} status -> api/v0.2/devices/{board}
 # {board} get_resource -> api/v0.2/devices/{board}/get_resource/{resource_type}
-# {resource} pm start -> api/v0.2/resources/{resource}/power_measurement/start
-# {resource} pm stop -> api/v0.2/resources/{resource}/power_measurement/stop/token
-# {resource} pm get-data -> api/v0.2/resources/{resource}/power_measurement/get-data/token
-# {resource} pm delete -> api/v0.2/resources/{resource}/power_measurement/delete/token
-# {resource} serial start -> api/v0.2/resources/{resource}/serial/start
-# {resource} serial stop -> api/v0.2/resources/{resource}/serial/stop/token
+# {resource} pm start -> api/v0.2/resources/{resource}/power-measurement/start-capture
+# {resource} pm stop -> api/v0.2/resources/{resource}/power-measurement/stop-capture/token
+# {resource} pm get-data -> api/v0.2/resources/{resource}/power-measurement/get-data/token
+# {resource} pm delete -> api/v0.2/resources/{resource}/power-measurement/delete/token
+# {resource} serial start -> api/v0.2/resources/{resource}/serial/start-capture
+# {resource} serial stop -> api/v0.2/resources/{resource}/serial/stop-capture/token
 # {resource} serial get-data -> api/v0.2/resources/{resource}/serial/get-data/token
 # {resource} serial delete -> api/v0.2/resources/{resource}/serial/delete/token
 # {resource} serial put-data -> POST api/v0.2/resources/{resource}/serial/put-data
+# {resource} serial set-config -> POST api/v0.2/resources/{resource}/serial/set-config
 
 def do_api(req):
     #log_this("in do_api")
@@ -1901,7 +1902,7 @@ def do_api(req):
             else:
                 res_type = parts[2]
                 rest = parts[3:]
-                if res_type in ["power_measurement", "serial", "canbus"]:
+                if res_type in ["power-measurement", "serial", "canbus"]:
                     return_api_resource_action(req, resource, res_type, rest)
                     return
 

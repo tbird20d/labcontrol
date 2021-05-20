@@ -166,7 +166,7 @@ a message will be provided.
 "get-resource": ("Get a resource associated with a board.",
     """Usage: lc <board> get-resource <resource_type> [<feature-str>]
   Get a resource associated with a board.  The resource type can
-  be one of: "power_measurement" "power_controller".
+  be one of: "power-measurement","serial".
 
   The resource can then be to perform an action related to the board.
 
@@ -174,7 +174,7 @@ a message will be provided.
   no resource is assigned, a string starting with the word "Error:"
   Also, on an error, the return code from 'lc' is non-zero.
 
-ex: pm_resource=$(lc bbb get-resource power_measurement)
+ex: pm_resource=$(lc bbb get-resource power-measurement)
     if [ "$?" == 0 ] ; then
        echo "The power management resource for board bbb is '$pm_resource'"
     else:
@@ -194,7 +194,7 @@ ex: echo "{ \\"baud_rate\\": \\"115200\\" }" | lc serial-u5 set-config serial
 """),
 
 "power-measurement": ("Perform a power measurement operation using a resource.",
-    """Usage: lc <resource> power_measurement {operation}
+    """Usage: lc <resource> power-measurement {operation}
   Perform a power measurement operation on a board.
   Note that you can also use the alias 'pm' instead of 'power-measurement'
 
@@ -202,8 +202,8 @@ ex: echo "{ \\"baud_rate\\": \\"115200\\" }" | lc serial-u5 set-config serial
     start            Start capturing power measurement data, using the
                      indicated resource.  lc will output a string which
                      is a token that can be used to control this instance
-                     of power_measurement (that is, to stop, get or delete
-                     the power_measurement data).
+                     of power-measurement (that is, to stop, get or delete
+                     the power-measurement data).
     stop <token>     Stop capturing power measurement data.
     get-data <token> Return the captured power measurement data.
     delete <token>   Delete the captured power measurement data, on the server.
@@ -967,16 +967,16 @@ def do_power_measurement(conf, options, cmd):
         operation = options[0].lower()
         del options[0]
     except:
-        error_out("No power_measurement operation specified.\n" + \
+        error_out("No power-measurement operation specified.\n" + \
                 "Please specify one of 'start', 'stop', 'get-data', or 'delete'.")
 
     if operation not in ["start", "stop", "get-data", "delete"]:
         error_out("Invalid power operation specified.\n" + \
                 "Please specify one of 'start', 'stop', 'get-data', or 'delete'.")
 
-    url_op  = { "start": "start_capture", "stop": "stop_capture", "get-data": "get-data", "delete": "delete" }[operation]
+    url_op  = { "start": "start-capture", "stop": "stop-capture", "get-data": "get-data", "delete": "delete" }[operation]
 
-    url = conf.API_URL_BASE+"api/v0.2/resources/%s/power_measurement/%s" % (resource, url_op)
+    url = conf.API_URL_BASE+"api/v0.2/resources/%s/power-measurement/%s" % (resource, url_op)
     headers = { "Authorization": "token " + conf.auth_token }
 
     if operation in ["stop", "get-data", "delete"]:
@@ -986,13 +986,13 @@ def do_power_measurement(conf, options, cmd):
         except:
             error_out("No token provided for '%s' operation.\n" % operation)
         url += "/%s" % token
-        # FIXTHIS - power_measurement operation should be a 'post' according to the spec
+        # FIXTHIS - power-measurement operation should be a 'post' according to the spec
         resp = requests.get(url, headers=headers)
     else:
         resp = requests.get(url, headers=headers)
 
     if resp.status_code != 200:
-        error_out("Cannot perform power_measurement %s operation on server" % operation )
+        error_out("Cannot perform power-measurement %s operation on server" % operation )
 
     resp_data = resp.json()
 
@@ -1007,7 +1007,7 @@ def do_power_measurement(conf, options, cmd):
             reason = resp_data["message"]
         except:
             reason = "for unknown reasons"
-        error_out("Could not do operation 'power_measurement %s'. From server:\n %s" % (operation, reason))
+        error_out("Could not do operation 'power-measurement %s'. From server:\n %s" % (operation, reason))
 
     # operation was performed, result was "success"
 
@@ -1040,7 +1040,7 @@ def do_power_measurement(conf, options, cmd):
 
     # this seems unlikely, given the checks above
     # but be thorough in error handling
-    error_out("Invalid operation '%s' for power_measurement command" % operation)
+    error_out("Invalid operation '%s' for power-measurement command" % operation)
 
 def do_set_config(conf, options, cmd):
     # resource is a required first argument
@@ -1121,7 +1121,7 @@ def do_serial(conf, options, cmd):
         error_out("Invalid serial specified.\n" + \
                 "Please specify one of 'start', 'stop', 'get-data', or 'delete'.")
 
-    url_op  = { "start": "start_capture", "stop": "stop_capture", "get-data": "get-data", "delete": "delete", "put-data": "put-data" }[operation]
+    url_op  = { "start": "start-capture", "stop": "stop-capture", "get-data": "get-data", "delete": "delete", "put-data": "put-data" }[operation]
 
     url = conf.API_URL_BASE+"api/v0.2/resources/%s/serial/%s" % (resource, url_op)
     headers = { "Authorization": "token " + conf.auth_token }
