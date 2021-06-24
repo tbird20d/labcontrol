@@ -12,7 +12,6 @@
 # Author: Tim Bird  <tim.bird (at) sony.com>
 #
 # To Do:
-#  - add support for put-data
 #  - add support for upload
 #  - add support for download
 #  - make lc work with ebf server
@@ -237,7 +236,7 @@ ex: token=$(lc uart10 serial start)
     cat testfile | lc uart10 serial put-data
 """),
 
-"run": ("run a command on a board",
+"run": ("Run a command on a board",
     """Usage: lc <board> run {command} {args}...
   Run a command on a board. Output from the command is displayed.
 
@@ -730,8 +729,7 @@ def do_run(conf, options):
                 "Please specify a board from the list available with 'lc list boards'.")
 
     if not options:
-        error_out("No power operation specified.\n" + \
-                "Please specify one of 'status', 'on', 'off', or 'reboot'.")
+        error_out("No command was specified to run.\n")
 
     # FIXTHIS - not sure about just joining the args with a space
     # what happens to single arguments with a space?
@@ -894,6 +892,7 @@ def do_status(conf, options):
     #   board power-on status
     #   whether board is running linux (pingable?)
     #   future reservations for board
+
 
 def do_get_resource(conf, options):
     # board is a required first argument
