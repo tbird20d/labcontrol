@@ -807,6 +807,8 @@ def get_power_status(req, bmap):
         return (RSLT_FAIL, msg)
 
     cmd_str = pdu_map["status_cmd"]
+    cmd_str = get_interpolated_str(cmd_str, bmap, pdu_map)
+
     rcode, status = getstatusoutput(cmd_str)
     if rcode:
         msg = "Result of power status operation on board %s = %d\n" % (bmap["name"], rcode)
@@ -1124,6 +1126,20 @@ def return_api_object_data(req, obj_type, obj_name):
 
     req.send_api_response(RSLT_OK, data)
 
+def get_interpolated_str(s, map1, map2={}):
+    var_dict = map1.copy()
+    var_dict.update(map2)
+
+    # do substitution of variables from var_dict
+    # do multiple passes, until no more variable references are found
+    # (in case variable references are nested)
+    var_ref_pattern = "%\([a-zA-Z0-9_]*\)s"
+    while re.search(var_ref_pattern, s):
+        s = s % var_dict
+
+    dlog_this("interpolated string='%s'" % s)
+    return s
+
 # execute a resource command
 # returns a tuple of (result, string)
 def exec_command(req, board_map, resource_map, res_cmd):
@@ -1135,17 +1151,11 @@ def exec_command(req, board_map, resource_map, res_cmd):
 
     cmd_str = resource_map[res_cmd_str]
 
-    # FIXTHIS - do substitution of variables from board_map and resource_map
-    # into the cmd_str, like the following:
-    # if has_fmt(cmd_str):
-    #   cmd_str = cmd_str % board_map
-    #
-    # This allows a command to refer to a variable defined in the board
-    # or resource data
+    cmd_str = get_interpolated_str(cmd_str, board_map, resource_map)
 
     rcode, result = getstatusoutput(cmd_str)
     if rcode:
-        msg = "Result of %s operation on resource %s = %d" % (res_cmd, resource["name"], rcode)
+        msg = "Result of %s operation on resource %s = %d" % (res_cmd, resource_map["name"], rcode)
         msg += "command output='%s'" % result
         return (RSLT_FAIL, msg)
 
@@ -1294,28 +1304,32 @@ def return_api_board_action(req, board, action, rest):
             return
 
         # This seems optimistic - maybe add some error handling here
-        command_from_user = json.loads(req.form.value)["command"]
+        run_data = req.form.value
+        dlog_this("run_data=%s" % run_data)
+        command_to_run = json.loads(run_data)["command"]
+        dlog_this("command_to_run=%s" % command_to_run)
 
-        d = copy.deepcopy(board_map)
-        run_cmd = board_map.get("run_cmd", None)
-        if not run_cmd:
+        cmd_str = board_map.get("run_cmd", None)
+
+        if not cmd_str:
             msg = "Device '%s' is not configured to run commands" % board
             req.send_api_response_msg(RSLT_FAIL, msg)
             return
 
-        d["command"] = command_from_user
-        cmd = run_cmd % d
+        run_map = { "command": command_to_run }
+        cmd_str = get_interpolated_str(cmd_str, board_map, run_map)
 
-        log_this("About to run_command('%s')" % cmd)
+        log_this("About to run_command '%s' on board %s" % (cmd_str, board_map["name"]))
 
-        lines, rcode, msg = run_command(cmd)
+        lines, rcode, msg = run_command(cmd_str)
         if msg:
             req.send_api_response_msg(RSLT_FAIL, msg)
             return
+        dlog_this("result lines=%s" % lines)
 
         data = { "return_code": rcode, "data": lines }
         jdata = json.dumps(data)
-        log_this("jdata='%s'" % jdata)
+        dlog_this("jdata='%s'" % jdata)
 
         req.send_api_response(RSLT_OK, { "data": data } )
         return
@@ -1422,14 +1436,16 @@ def set_config(req, action, resource_map, config_map, rest):
 
     allowed_config_items=["baud_rate"]
 
-    new_resource_map = copy.deepcopy(resource_map)
+    # FIXTHIS - should also add variables from the board_map here
+    # this might require a separate lookup to see what board we're operating on
+    cmd_vars = resource_map.copy()
+
     # only copy allowed items from config_map
     for key, value in config_map.items():
         if key in allowed_config_items:
-            new_resource_map[key] = value
+            cmd_vars[key] = value
 
-    cmd_str = config_cmd % new_resource_map
-    dlog_this("(interpolated) cmd_str='%s'" + cmd_str)
+    cmd_str = get_interpolated_str(config_cmd, cmd_vars)
     rcode, result = getstatusoutput(cmd_str)
     if rcode:
         msg = "Result of set-config operation on resource %s = %d\n" % (resource, rcode)
@@ -1480,7 +1496,7 @@ def start_capture(req, action, resource_map, rest):
     d["logfile"] = logpath
 
     cmd = capture_cmd % d
-    log_this("(interpolated) cmd=" + cmd)
+    dlog_this("(interpolated) cmd=" + cmd)
 
     # save pid in a file, named with the token used earlier
     pid, msg = new_exec_command(cmd)
