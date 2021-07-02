@@ -1146,7 +1146,7 @@ def exec_command(req, board_map, resource_map, res_cmd):
     # lookup command to execute in resource_map
     res_cmd_str = res_cmd + "_cmd"
     if res_cmd_str not in resource_map:
-        msg = "Resource '%s' does not have %s attribute, cannot execute" % (resource["name"], res_cmd_str)
+        msg = "Resource '%s' does not have %s attribute, cannot execute" % (resource_map["name"], res_cmd_str)
         return (RSLT_FAIL, msg)
 
     cmd_str = resource_map[res_cmd_str]
