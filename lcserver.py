@@ -1166,6 +1166,232 @@ def return_exec_command(req, board_map, resource_map, res_cmd):
     (result, msg) = exec_command(req, board_map, resource_map, res_cmd)
     req.send_api_response_msg(result, msg)
 
+# lookup resource either just by type, or by type and provided feature
+def do_board_get_resource(req, board, board_map, rest):
+    res_type = rest[0]
+    del(rest[0])
+    if res_type not in ["power-controller", "power-measurement", "serial",
+            "canbus"]:
+        msg = "Error: invalid resource type '%s'" % res_type
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    if not rest:
+        # find resource by resource type
+        resource = board_map.get(res_type, None)
+        if not resource:
+            msg = "Error: no resource type '%s' associated with board '%s'" % \
+                     (res_type, board)
+            req.send_api_response_msg(RSLT_FAIL, msg)
+            return
+    else:
+        # find resource by connected feature
+        feature = urllib.unquote(rest[0])
+        resource, msg = find_resource(req, board, feature)
+        if not resource:
+            req.send_api_response_msg(RSLT_FAIL, msg)
+            return
+
+    req.send_api_response(RSLT_OK, { "data": resource })
+    return
+
+def do_board_power_operation(req, board, board_map, rest):
+    pdu_map = get_connected_resource(req, board_map, "power_controller")
+    if not pdu_map:
+        msg = "No power controller resource found for board %s" % board
+        req.send_api_response_msg(RSLT_FAIL,  msg)
+        return
+
+    try:
+        action = rest[0]
+    except IndexError:
+        action = "status"
+
+    if action == "status":
+        (result, msg) = get_power_status(req, board_map)
+        log_this("power status result=%s,%s" % (result, msg))
+        if result==RSLT_OK:
+            req.send_api_response(result, {"data": msg})
+            return
+        else:
+            req.send_api_response_msg(result, msg)
+            return
+    elif action in ["on", "off", "reboot"]:
+        return_exec_command(req, board_map, pdu_map, action)
+        return
+    else:
+        msg = "power action '%s' not supported" % action
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+def do_board_assign(req, board, board_map, rest):
+    if rest:
+        msg = "extra data '%s' in assign operation" % str(rest)
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    # get current user, and add reservation for board to user
+    user = req.get_user()
+    assigned_to = board_map.get("AssignedTo", "nobody")
+    if assigned_to != "nobody":
+        if user == assigned_to:
+            msg = "Device is already assigned to you"
+        else:
+            msg = "Device is already assigned to %s" % assigned_to
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    if user and user != "nobody":
+        board_map["AssignedTo"] = user
+    else:
+        msg = "Cannot determine user for operation"
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    # save data back to json file
+    save_object_data(req, "board", board, board_map)
+
+    req.send_api_response(RSLT_OK)
+    return
+
+def do_board_release(req, board, board_map, rest):
+    # get current user, and remove reservation for board
+    user = req.get_user()
+    assigned_to = board_map.get("AssignedTo", "nobody")
+    if assigned_to == "nobody":
+        msg = "Device is already free and available for allocation."
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    if not user or user == "nobody":
+        msg = "Cannot determine user for operation"
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    force = False
+    if rest and rest[0] == "force":
+        force = True
+
+    if not force:
+        if user != assigned_to:
+            msg = "Device is not assigned to you. It is assigned to '%s'.\nCannot release it. (try using 'force' option)" % assigned_to
+            req.send_api_response_msg(RSLT_FAIL, msg)
+            return
+
+    board_map["AssignedTo"] = "nobody"
+
+    # save data back to json file
+    save_object_data(req, "board", board, board_map)
+
+    req.send_api_response(RSLT_OK)
+    return
+
+def do_board_run(req, board, board_map, rest):
+    # check that user has board reserved
+    user = req.get_user()
+    assigned_to = board_map.get("AssignedTo", "nobody")
+
+    if user != assigned_to:
+        msg = "Device is not assigned to you. It is assigned to '%s'.\nCannot run command." % assigned_to
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    # This seems optimistic - maybe add some error handling here
+    run_data = req.form.value
+    dlog_this("run_data=%s" % run_data)
+    command_to_run = json.loads(run_data)["command"]
+    dlog_this("command_to_run=%s" % command_to_run)
+
+    cmd_str = board_map.get("run_cmd", None)
+
+    if not cmd_str:
+        msg = "Device '%s' is not configured to run commands" % board
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    run_map = { "command": command_to_run }
+    cmd_str = get_interpolated_str(cmd_str, board_map, run_map)
+
+    log_this("About to run_command '%s' on board %s" % (cmd_str, board_map["name"]))
+
+    lines, rcode, msg = run_command(cmd_str)
+    if msg:
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+    dlog_this("result lines=%s" % lines)
+
+    data = { "return_code": rcode, "data": lines }
+    jdata = json.dumps(data)
+    dlog_this("jdata='%s'" % jdata)
+
+    req.send_api_response(RSLT_OK, { "data": data } )
+    return
+
+# upload operation:
+#   get data from request and put it into a local file
+#   use "upload_cmd" command to transfer it to the board
+#     (set src, dest in the command)
+# This code assumes that the upload_cmd can handle individual
+# files as well as recursive directory copies
+def do_board_upload(req, board, board_map, rest):
+    # check that user has board reserved
+    user = req.get_user()
+    assigned_to = board_map.get("AssignedTo", "nobody")
+
+    if user != assigned_to:
+        msg = "Device is not assigned to you. It is assigned to '%s'.\nCannot do upload." % assigned_to
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    # get data for the upload
+    dlog_this("req.form=%s" % str(req.form))
+    dest_path = req.form.getvalue("path")
+    #dest_path = req.form["data"].value
+    dlog_this("dest_path=%s" % dest_path)
+
+    # make sure board supports upload operation
+    cmd_str = board_map.get("upload_cmd", None)
+    if not cmd_str:
+        msg = "Device '%s' is not configured to run commands" % board
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    # read file from form data into temp file on lcserver host system
+    tmpdir = tempfile.mkdtemp()
+    src_filename = os.path.basename(dest_path)
+    #save_file(req, "file", tmpdir)
+
+    has_file = req.form.has_key("file")
+
+    if true:
+        msg = "Upload code not finished. has_file=%s" % has_file
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    upload_map = { "src": staged_path, "dest": dest_path }
+    cmd_str = get_interpolated_str(cmd_str, board_map, upload_map)
+
+    log_this("executing upload command: %s" % cmd_str)
+    rcode, result = getstatusoutput(cmd_str)
+
+
+    # clean up temporary files
+    tmpdir = tempfile.mkdtemp()
+
+    lines, rcode, msg = run_command(cmd_str)
+    if msg:
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+    dlog_this("result lines=%s" % lines)
+
+    data = { "return_code": rcode, "data": lines }
+    jdata = json.dumps(data)
+    dlog_this("jdata='%s'" % jdata)
+
+    req.send_api_response(RSLT_OK, { "data": data } )
+    return
+
+
 # rest is a list of the rest of the path
 # supported actions are: get_resource, power, assign, release, run
 def return_api_board_action(req, board, action, rest):
@@ -1183,159 +1409,32 @@ def return_api_board_action(req, board, action, rest):
         return
 
     if action == "get_resource":
-        res_type = rest[0]
-        del(rest[0])
-        if res_type not in ["power-controller", "power-measurement", "serial",
-                "canbus"]:
-            msg = "Error: invalid resource type '%s'" % res_type
-            req.send_api_response_msg(RSLT_FAIL, msg)
-            return
+        do_board_get_resource(req, board, board_map, rest)
+        return
 
-        if not rest:
-            resource = board_map.get(res_type, None)
-            if not resource:
-                msg = "Error: no resource type '%s' associated with board '%s'" % \
-                         (res_type, board)
-                req.send_api_response_msg(RSLT_FAIL, msg)
-                return
+    elif action == "power":
+        do_board_power_operation(req, board, board_map, rest)
+        return
 
-            req.send_api_response(RSLT_OK, { "data": resource })
-            return
-
-        if rest:
-            feature = urllib.unquote(rest[0])
-            resource, msg = find_resource(req, board, feature)
-            if not resource:
-                req.send_api_response_msg(RSLT_FAIL, msg)
-                return
-
-            req.send_api_response(RSLT_OK, { "data": resource })
-            return
-            # match it to board_endpoint in resource file
-
-    if action == "power":
-        pdu_map = get_connected_resource(req, board_map, "power_controller")
-        if not pdu_map:
-            msg = "No power controller resource found for board %s" % board
-            req.send_api_response_msg(RSLT_FAIL,  msg)
-            return
-
-        if not rest or rest[0] == "status":
-            (result, msg) = get_power_status(req, board_map)
-            log_this("power status result=%s,%s" % (result, msg))
-            if result==RSLT_OK:
-                req.send_api_response(result, {"data": msg})
-            else:
-                req.send_api_response_msg(result, msg)
-            return
-        elif rest[0] in ["on", "off", "reboot"]:
-            return_exec_command(req, board_map, pdu_map, rest[0])
-            return
-        else:
-            msg = "power action '%s' not supported" % rest[0]
-            req.send_api_response_msg(RSLT_FAIL, msg)
-            return
     elif action == "assign":
-        # get current user, and add reservation for board to user
-        user = req.get_user()
-        assigned_to = board_map.get("AssignedTo", "nobody")
-        if assigned_to != "nobody":
-            if user == assigned_to:
-                msg = "Device is already assigned to you"
-            else:
-                msg = "Device is already assigned to %s" % assigned_to
-            req.send_api_response_msg(RSLT_FAIL, msg)
-            return
-
-        if user and user != "nobody":
-            board_map["AssignedTo"] = user
-        else:
-            msg = "Cannot determine user for operation"
-            req.send_api_response_msg(RSLT_FAIL, msg)
-            return
-
-        # save data back to json file
-        save_object_data(req, "board", board, board_map)
-
-        req.send_api_response(RSLT_OK)
+        do_board_assign(req, board, board_map, rest)
         return
 
     elif action == "release":
-        # get current user, and remove reservation for board
-        user = req.get_user()
-        assigned_to = board_map.get("AssignedTo", "nobody")
-        if assigned_to == "nobody":
-            msg = "Device is already free and available for allocation."
-            req.send_api_response_msg(RSLT_FAIL, msg)
-            return
-
-        if not user or user == "nobody":
-            msg = "Cannot determine user for operation"
-            req.send_api_response_msg(RSLT_FAIL, msg)
-            return
-
-        if rest and rest[0] == "force":
-            force = True
-        else:
-            force = False
-
-        if not force:
-            if user != assigned_to:
-                msg = "Device is not assigned to you. It is assigned to '%s'.\nCannot release it. (try using 'force' option)" % assigned_to
-                req.send_api_response_msg(RSLT_FAIL, msg)
-                return
-
-        board_map["AssignedTo"] = "nobody"
-
-        # save data back to json file
-        save_object_data(req, "board", board, board_map)
-
-        req.send_api_response(RSLT_OK)
+        do_board_release(req, board, board_map, rest)
         return
 
     elif action == "run":
-        # check that user has board reserved
-        user = req.get_user()
-        assigned_to = board_map.get("AssignedTo", "nobody")
+        do_board_run(req, board, board_map, rest)
+        return
 
-        if user != assigned_to:
-            msg = "Device is not assigned to you. It is assigned to '%s'.\nCannot run command." % assigned_to
-            req.send_api_response_msg(RSLT_FAIL, msg)
-            return
-
-        # This seems optimistic - maybe add some error handling here
-        run_data = req.form.value
-        dlog_this("run_data=%s" % run_data)
-        command_to_run = json.loads(run_data)["command"]
-        dlog_this("command_to_run=%s" % command_to_run)
-
-        cmd_str = board_map.get("run_cmd", None)
-
-        if not cmd_str:
-            msg = "Device '%s' is not configured to run commands" % board
-            req.send_api_response_msg(RSLT_FAIL, msg)
-            return
-
-        run_map = { "command": command_to_run }
-        cmd_str = get_interpolated_str(cmd_str, board_map, run_map)
-
-        log_this("About to run_command '%s' on board %s" % (cmd_str, board_map["name"]))
-
-        lines, rcode, msg = run_command(cmd_str)
-        if msg:
-            req.send_api_response_msg(RSLT_FAIL, msg)
-            return
-        dlog_this("result lines=%s" % lines)
-
-        data = { "return_code": rcode, "data": lines }
-        jdata = json.dumps(data)
-        dlog_this("jdata='%s'" % jdata)
-
-        req.send_api_response(RSLT_OK, { "data": data } )
+    elif action == "upload":
+        do_board_upload(req, board, board_map, rest)
         return
 
     msg = "action '%s' not supported (rest='%s')" % (action, rest)
     req.send_api_response_msg(RSLT_FAIL, msg)
+
 
 CAPTURE_LOG_FILENAME_FMT="/tmp/capture-log-%s.txt"
 capture_dir="/tmp"
