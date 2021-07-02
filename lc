@@ -324,9 +324,9 @@ class config_class:
         self.host = conf_map.get("host", "localhost")
         self.user = conf_map.get("user", "lc_user")
         self.auth_token = conf_map.get("token", "abcd01234")
-        self.server = conf_map.get("server", "localhost:8000")
+        self.server = conf_map.get("server", "http://localhost:8000/lcserver.py")
         self.default_board = conf_map.get("default_board", "")
-        self.API_URL_BASE = "http://%s/lcserver.py/" % self.server
+        self.API_URL_BASE = "%s/" % self.server
         self.config_filepath = config_filepath
 
     # fuego configuration file syntax:
