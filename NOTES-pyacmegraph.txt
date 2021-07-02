@@ -1,0 +1,86 @@
+Here are some notes for using pyacmegrapgh
+
+Setup Instructions (tested on Debian buster with python 3.7.3):
+
+*   pip3 install numpy
+*   apt-get update
+
+*   apt-get install -y libiio-dev
+*   pip3 install pylibiio
+
+
+Usage:
+
+    sudo python3 pyacmegraph.py --ip <beaglebone_ip_address> \
+      --ishunt --norelatime --filename <data logging csv filename> \
+      --samplingtime <data logging interval in seconds> \
+      --probe <probe number>
+
+
+Example:
+
+
+    sudo python3 pyacmegraph.py --ip 172.16.2.127 \
+      --ishunt --norelatime --filename power_measurement_data.csv \
+      --samplingtime 1 \
+      --probe 2
+
+== selecting data ==
+How to choose the port?
+ Use --probe <#>
+
+I get the value from all three probes, if I don't specify a probe number.
+
+However, I can't figure out how to get the value of just the USB
+probe (which is the 2nd of 3 probe values printed, when I'm working
+with the board.
+
+
+= bugs =
+
+== resolved bugs ==
+Resolved on 2021-06-11 by installing libiio version 0.19
+by following instructions at:
+
+See https://wiki.analog.com/resources/tools-software/linux-software/libiio
+for more info.
+
+See ~/work/libiio/libiio
+
+Use iio_info to get the version of iio on your system.
+
+  tbird@timdesk:~/work/labcontrol$ iio_info
+  Library version: 0.19 (git tag: 5f5af2e)
+  Compiled with backends: local xml ip usb
+  Unable to create IIO context: No such file or directory
+
+----
+original bug report:
+
+On my Ubuntu 16.04 system, my version of the libiio library is 0.6
+(which is from Dec 2015.  It doesn't work.  I get the following
+message:
+--------
+Traceback (most recent call last):
+  File "pyacmegraph.py", line 6, in <module>
+    import iio
+  File "/home/tbird/.local/lib/python3.5/site-packages/iio.py", line 236, in <module>
+    _get_backends_count = _lib.iio_get_backends_count
+  File "/usr/lib/python3.5/ctypes/__init__.py", line 360, in __getattr__
+    func = self.__getitem__(name)
+  File "/usr/lib/python3.5/ctypes/__init__.py", line 365, in __getitem__
+    func = self._FuncPtr((name_or_ordinal, self))
+AttributeError: /usr/lib/x86_64-linux-gnu/libiio.so.0: undefined symbol: iio_get_backends_count
+------
+
+See https://wiki.analog.com/resources/tools-software/linux-software/libiio
+for more info.  Use iio_info to get the version of iio on your system.
+
+
+== acme-cli ==
+
+Acme also has a python utility for power control.
+
+
+https://gitlab.com/baylibre-acme/acme-cli/-/blob/master/acme-cli
+
