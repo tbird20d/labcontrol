@@ -52,7 +52,7 @@ else:
 # MAJOR, MINOR, REVISION, extra_revision
 # extra_revision, if non-empty, should start with a dash
 # (e.g. "-next", "-rc1")
-VERSION = (0, 4, 0, "")
+VERSION = (0, 5, 0, "")
 
 # this is from the REST API standard
 RSLT_OK = "success"
@@ -505,7 +505,6 @@ def get_objects_via_api(conf, obj_type, options):
         error_out("Cannot read %s from server" % obj_type)
 
     resp_data = resp.json()
-    print("resp_data=%s" % resp_data)
     try:
         result = resp_data["result"]
     except:
@@ -595,7 +594,7 @@ def do_login(conf, options):
     password = getpass.getpass("Enter Password: ")
 
     # get token from server
-    url = conf.API_URL_BASE+"api/v0.2/token"
+    url = new_server+"/api/v0.2/token"
     headers = { "Content-Type": "application/json" }
     jdata = '{ "username": "%s", "password": "%s" }' % (new_user, password)
 
@@ -667,7 +666,6 @@ def do_list_mydevices(conf, options):
         error_out("Cannot read %s from server" % obj_type)
 
     resp_data = resp.json()
-    print("resp_data=%s" % resp_data)
     try:
         result = resp_data["result"]
     except:
