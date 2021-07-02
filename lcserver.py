@@ -1836,10 +1836,10 @@ def find_resource(req, board, feature):
 # {resource} serial set-config -> POST api/v0.2/resources/{resource}/serial/set-config
 
 def do_api(req):
-    #log_this("in do_api")
+    dlog_this("in do_api")
     # determine api operation from path
     req_path = req.environ.get("PATH_INFO", "")
-    #log_this("TRB: req_path=%s" % req_path)
+    dlog_this("TRB: req_path=%s" % req_path)
     path_parts = req_path.split("/")
     # get the path elements after 'api'
     parts = path_parts[path_parts.index("api")+1:]
@@ -1858,6 +1858,11 @@ def do_api(req):
         msg = "Invalid empty path after /api"
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
+
+    # ignore trailing slash in API
+    # eg: treat /api/v0.2/devices/ like /api/v0.2/devices
+    if not parts[-1]:
+        del(parts[-1])
 
     if parts[0] == "token":
         # return auth token for user (on successful authentication)
