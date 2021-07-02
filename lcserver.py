@@ -228,8 +228,8 @@ class req_class:
         self.send_api_response(result, { "message": msg })
 
     def send_api_list_response(self, data):
-
-        json_data = json.dumps(data, sort_keys=True, indent=4,
+        resp_data = { "result": "success", "data": data }
+        json_data = json.dumps(resp_data, sort_keys=True, indent=4,
             separators=(',', ': '))
 
         self.html.append("Content-type: text/plain\n\n")

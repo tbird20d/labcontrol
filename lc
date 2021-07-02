@@ -505,7 +505,23 @@ def get_objects_via_api(conf, obj_type, options):
         error_out("Cannot read %s from server" % obj_type)
 
     resp_data = resp.json()
-    if type(resp_data) != type([]):
+    print("resp_data=%s" % resp_data)
+    try:
+        result = resp_data["result"]
+    except:
+        error_out("Malformed response from server. Missing 'result'. resp=" + resp_data)
+
+    if result != RSLT_OK:
+        # print error
+        try:
+            reason = resp_data["message"]
+        except:
+            reason = "for unknown reasons"
+        reason = "%s" % reason
+        error_out("Could not do operation '%s %s'. From server:\n %s" % (res_type, operation, reason))
+
+    list_data = resp_data["data"]
+    if type(list_data) != type([]):
         # print error
         try:
             reason = resp_data["message"]
@@ -513,7 +529,7 @@ def get_objects_via_api(conf, obj_type, options):
             reason = "for unknown reasons"
         error_out("Could not get %s from server: %s" % (obj_type, reason))
 
-    return resp_data
+    return list_data
 
 
 def list_objects_via_api(conf, obj_type, options):
@@ -646,12 +662,28 @@ def do_list_mydevices(conf, options):
 
     headers = { "Authorization": "token " + conf.auth_token }
 
-    resp = requests.get(url, headers=headers)
+    resp = requests.get(url, headers=headers, verify=False)
     if resp.status_code != 200:
         error_out("Cannot read %s from server" % obj_type)
 
     resp_data = resp.json()
-    if type(resp_data) != type([]):
+    print("resp_data=%s" % resp_data)
+    try:
+        result = resp_data["result"]
+    except:
+        error_out("Malformed response from server. Missing 'result'. resp=" + resp_data)
+
+    if result != RSLT_OK:
+        # print error
+        try:
+            reason = resp_data["message"]
+        except:
+            reason = "for unknown reasons"
+        reason = "%s" % reason
+        error_out("Could not do operation '%s %s'. From server:\n %s" % (res_type, operation, reason))
+
+    list_data = resp_data["data"]
+    if type(list_data) != type([]):
         # print error
         try:
             reason = resp_data["message"]
@@ -660,8 +692,8 @@ def do_list_mydevices(conf, options):
         error_out("Could not get %s from server: %s" % (obj_type, reason))
 
     indent = show_list_title("Boards reserved for me on the LabControl server:")
-    if resp_data:
-        for board in resp_data:
+    if list_data:
+        for board in list_data:
             print indent + board
     else:
         if not quiet:
