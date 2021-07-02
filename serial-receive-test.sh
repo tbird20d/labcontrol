@@ -150,7 +150,7 @@ test_one_rate() {
     sleep 0.3
 
     v_echo "Transmitting data from lab"
-    echo $SEND_DATA | $CLIENT $RESOURCE serial put-data "$SEND_DATA"
+    echo $SEND_DATA | $CLIENT $RESOURCE serial put-data
 
     # give time for receiver to receive data - I'm not sure this is needed
     sleep 0.3
