@@ -72,7 +72,7 @@ import signal
 import threading   # used for Timer objects
 
 debug = False
-#debug = True
+debug = True
 
 debug_api_response = False
 # uncomment this to dump response data to the log file
@@ -425,9 +425,9 @@ def do_put_object(req, obj_type):
 # define an array with the fields that allowed to be modified
 # for each different object type:
 allowed_update_fields = {
-    "board": ["state", "kernel_version", "reservation"],
+    "board": ["state", "kernel_version", "AssignedTo"],
     "request": ["state", "start_time", "done_time"],
-    "resource": ["state", "reservation", "command"]
+    "resource": ["state", "AssignedTo", "command"]
     }
 
 # Update board, resource and request objects
@@ -767,7 +767,7 @@ def show_board_info(req, bmap):
 
     req.html.append("<h3>Status</h3>\n<ul>")
 
-    reservation = bmap.get("reservation", "None")
+    reservation = bmap.get("AssignedTo", "None")
     req.html.append("<li>Reservation: %s</li>" % reservation)
 
     # show power status
@@ -785,12 +785,24 @@ def show_board_info(req, bmap):
 
     req.html.append("<h3>Actions</h3>\n<ul>\n")
     if pc:
-        reboot_link = req.config.url_base + "/api/devices/%s/power/reboot" % (bmap["name"])
+        reboot_link = req.config.url_base + "/api/v0.2/devices/%s/power/reboot" % (bmap["name"])
         req.html.append("""
 <form method="get" action=%s>
 <input type="submit" name="button" value="Reboot">
 </form>
 """ % reboot_link)
+        on_link = req.config.url_base + "/api/v0.2/devices/%s/power/on" % (bmap["name"])
+        req.html.append("""
+<form method="get" action=%s>
+<input type="submit" name="button" value="ON">
+</form>
+""" % on_link)
+        off_link = req.config.url_base + "/api/v0.2/devices/%s/power/off" % (bmap["name"])
+        req.html.append("""
+<form method="get" action=%s>
+<input type="submit" name="button" value="OFF">
+</form>
+""" % off_link)
     req.html.append("</ul>")
 
 # returns (RSLT_OK, status|RSLT_FAIL, message)
