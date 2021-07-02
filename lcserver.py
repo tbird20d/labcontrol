@@ -1574,12 +1574,13 @@ def start_capture(req, action, resource_map, rest):
     log_this("capture_cmd=" + capture_cmd)
 
     # generate the logfile path, and hand  to the capture_cmd
-    # FIXTHIS - use a hardcoded logfile and pidfile for now
-    token = "1234"
     fd, logpath = tempfile.mkstemp(capture_suffix, capture_prefix, capture_dir)
     os.close(fd)
     os.remove(logpath)
     filename = os.path.basename(logpath)
+
+    # get token from section of filename created by mkstemp
+    # this should be a random string
     token = filename[len(capture_prefix):-len(capture_suffix)]
 
     pidfile = CAPTURE_PID_FILENAME_FMT % token
