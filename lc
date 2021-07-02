@@ -1491,7 +1491,8 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except requests.ConnectionError:
-        error_out("Could not connect to server.  Check that server is running\n" \
-                "and that you have the right server in your configuration file.")
+    except requests.ConnectionError, e:
+        error_out("""Could not connect to server: %s.
+Check that server is running and that you have the right
+server in your configuration file.""" % str(e))
         sys.exit(1)
