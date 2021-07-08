@@ -20,7 +20,7 @@
 #     on the objects)
 #
 # The server currently supports the top-level "pages":
-#   boards, resources, requests, logs
+#   boards, resources, requests, logs, users
 #
 # The REST API specified with Timesys uses urls like this:
 #  /api/v0.2/devices/bbb/power/reboot
@@ -30,8 +30,7 @@
 # - convert everything over to the path api
 #   + list devices
 # - actions:
-#    + support assign, release and release/force (lc allocate/release)
-#    + support api/v0.2/devices/mine (lc mydevices)
+#   - upload - need to parse multi-part forms
 # - queries:
 #   - handle regex wildcards instead of just start/end wildcards
 # - objects:
@@ -72,7 +71,7 @@ import signal
 import threading   # used for Timer objects
 
 debug = False
-debug = True
+#debug = True
 
 debug_api_response = False
 # uncomment this to dump response data to the log file
@@ -151,6 +150,14 @@ class req_class:
         page_name = re.sub(" ","_",page_name)
         self.page_name = page_name
         self.page_url = self.make_url(page_name)
+
+    def set_obj_type(self, page_path):
+        page_path = re.sub(" ","_",page_path)
+        if page_path[0] == "/":
+            page_path = page_path[1:]
+        if page_path[-1] == "s":
+            page_path = page_path[:-1]
+        self.obj_type = page_path
 
     def page_filename(self):
         if not hasattr(self, "page_name"):
@@ -752,9 +759,6 @@ def show_request_table(req):
 # NOTE: we're inside a table cell here
 def show_board_info(req, bmap):
     # list of connected resources
-    # FIXTHIS - what to show here:
-    # status, action button for reboot
-    # reservations
     req.html.append("<h3>Resources</h3>\n<ul>")
     pc = bmap.get("power_controller", "")
     resource_shown = False
@@ -805,6 +809,14 @@ def show_board_info(req, bmap):
 """ % off_link)
     req.html.append("</ul>")
 
+def show_object(req, obj_type, obj_name):
+    if obj_type == "board":
+        show_board(req, obj_name)
+    else:
+        title = "Error - object type '%s'" % req.obj_type
+        req.add_to_message(title)
+
+
 # returns (RSLT_OK, status|RSLT_FAIL, message)
 # status can be one of: "ON", "OFF", "UNKNOWN"
 def get_power_status(req, bmap):
@@ -838,23 +850,47 @@ def show_boards(req):
 
     # show a table of attributes
     req.html.append('<table class="board_table" border="1" style="border-collapse: collapse; padding: 5px" >\n<tr>\n')
-    req.html.append("  <th>Picture</th><th>Name</th><th>Description</th><th>Data and Actions</th>\n</tr>\n")
+    req.html.append("  <th>Name</th><th>Description</th><th>Data and Actions</th>\n</tr>\n")
     for board in boards:
         req.html.append("<tr>\n")
         bmap = get_object_map(req, "board", board)
-        req.html.append('  <td valign="middle" style="padding: 5px"><i>No picture</i></td>\n')
-        req.html.append('  <td valign="top" align="center" style="padding: 5px"><h3>%(name)s</h3>(in %(host)s)</td>\n' % bmap)
+        bmap["board_link"] = req.config.url_base + "/boards/" + board
+
+        req.html.append('  <td valign="top" align="center" style="padding: 5px"><h3><a href="%(board_link)s">%(name)s</a></h3>(in %(host)s)</td>\n' % bmap)
         req.html.append('  <td valign="top" style="padding: 5px">%(description)s</td>\n' % bmap)
-        # FIXTHIS - what to show here:
-        # status, action for on/off/reboot
-        # list of connected resources
-        # reservations
         req.html.append('  <td style="padding: 10px">')
         show_board_info(req, bmap)
         req.html.append("</td>\n")
         req.html.append("</tr>\n")
 
     req.html.append("</table>")
+    req.show_footer()
+
+def show_board(req, board):
+    # figure out which board we're showing
+
+    req.html.append("<H1>Board %s</h1>" % board)
+    bmap = get_object_map(req, "board", board)
+
+    req.html.append('<table class="board_table" border="1" style="border-collapse: collapse; padding: 5px" >\n<tr>\n')
+    req.html.append('  <td style="padding: 10px">')
+    show_board_info(req, bmap)
+    req.html.append('  </td><td style="padding: 5px" align=top>')
+
+    # show some more stuff:
+    #  uptime of the board
+
+    cmd_str = bmap["run_cmd"]
+    run_map = { "command": "uptime" }
+
+    cmd_str = get_interpolated_str(cmd_str, bmap, run_map)
+    lines, rcode, msg = run_command(cmd_str)
+    if rcode:
+        lines = ["<i>problem getting uptime</i>"]
+    req.html.append("<b>Uptime:</b> %s<BR>" % lines[0])
+
+    req.html.append("</td></tr></table>\n")
+
     req.show_footer()
 
 def show_users(req):
@@ -880,15 +916,19 @@ def show_users(req):
 # this is the main human interface to the server
 def do_show(req):
     req.show_header("Lab Control objects")
-    #log_this("in do_show, req.page_name='%s'\n" % req.page_name)
+    dlog_this("in do_show, req.page_name='%s'\n" % req.page_name)
     #req.html.append("req.page_name='%s' <br><br>" % req.page_name)
+    #req.html.append("req.obj_type='%s' <br><br>" % req.obj_type)
 
     if req.page_name not in ["boards", "resources", "users", "requests", "logs", "main"]:
-        # FIXTHIS - check for object name here, and show individual object
+        # check for object name here, and show individual object
         #   status and control interface
-        # it should be in req.obj_path
-        title = "Error - unknown object type '%s'" % req.page_name
-        req.add_to_message(title)
+        if req.obj_type not in ["board"]:
+            title = "Error - unsupported object type '%s'" % req.obj_type
+            req.add_to_message(title)
+        else:
+            # show individual object
+            show_object(req, req.obj_type, req.page_name)
     else:
         if req.page_name=="boards":
             show_boards(req)
@@ -2080,9 +2120,11 @@ def handle_request(environ, req):
         obj_path = path_info
 
     page_name = os.path.basename(obj_path)
+    obj_type = os.path.dirname(obj_path)
     if not page_name:
         page_name = "main"
     req.set_page_name(page_name)
+    req.set_obj_type(obj_type)
 
     #uncomment these to debug path stuff
     #req.add_to_message("PATH_INFO=%s" % environ.get("PATH_INFO"))
