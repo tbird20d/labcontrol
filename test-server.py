@@ -59,14 +59,13 @@ class fServerRequestHandler(CGIHTTPServer.CGIHTTPRequestHandler):
 
         """
 
-        full_url = self.path
-	# escape embedded '%'s to avoid annoying exceptions
-	path = re.sub("%","%%", full_url)
-        self.log_message("path=%s" % path)
+        path = self.path
+	# escape embedded '%'s to avoid exceptions from log_message
+        self.log_message("path=%s" % path.replace('%', '%%'))
 
         for x in self.cgi_directories:
             i = len(x)
-            if full_url[:i] == x and (not path[i:] or path[i] == '/'):
+            if path[:i] == x and (not path[i:] or path[i] == '/'):
                 self.cgi_info = path[:i], path[i+1:]
                 return True
 
@@ -74,7 +73,6 @@ class fServerRequestHandler(CGIHTTPServer.CGIHTTPRequestHandler):
         # parse path into parts: dirname, scriptname, query
         parts = urlparse(self.path)
 
-        self.log_message("parts=%s" % str(parts))
         if parts.path.endswith(".py"):
             self.cgi_info = os.path.dirname(parts.path), os.path.basename(parts.path) + "?" + parts.query
             self.log_message("cgi_info=%s" % str(self.cgi_info))

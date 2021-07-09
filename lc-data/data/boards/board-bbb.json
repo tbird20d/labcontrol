@@ -1,7 +1,13 @@
 {
+    "AssignedTo": "Tim",
     "board": "bbb",
     "description": "BeagleBone Black in Tim's lab",
     "host": "timslab",
     "name": "bbb",
-    "power-controller": "sdb-042"
+    "power_controller": "acme1",
+    "power_port": "2",
+    "power_measurement": "acme1",
+    "run_cmd": "ttc %(board)s run %(command)s",
+    "upload_cmd": "ttc %(board)s cp %(src)s target:%(dest)s",
+    "serial_endpoints": ["serial-QB"]
 }

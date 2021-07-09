@@ -1,6 +1,9 @@
 {
+    "name": "min1",
     "board": "min1",
+    "AssignedTo": "Tim",
     "description": "MinnowBoard in Tim's lab, that I got from Yocto Project",
     "host": "timslab",
-    "name": "min1"
+    "power_controller": "powerswitch1",
+    "power_port": "2"
 }
