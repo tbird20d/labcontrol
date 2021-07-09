@@ -153,9 +153,9 @@ class req_class:
 
     def set_obj_type(self, page_path):
         page_path = re.sub(" ","_",page_path)
-        if page_path[0] == "/":
+        if page_path and page_path[0] == "/":
             page_path = page_path[1:]
-        if page_path[-1] == "s":
+        if page_path and page_path[-1] == "s":
             page_path = page_path[:-1]
         self.obj_type = page_path
 
@@ -312,8 +312,17 @@ def show_env(req, env, full=0):
             req.html.append("<li>%s=%s" % (key, env[key]))
     req.html.append("</ul>")
 
-def log_env(req):
+CGI_VARS=["CONTENT_TYPE", "CONTENT_LENGTH", "DOCUMENT_ROOT",
+    "HTTP_COOKIE", "HTTP_HOST", "HTTP_REFERER", "HTTP_USER_AGENT",
+    "HTTPS", "PATH", "QUERY_STRING", "REMOTE_ADDR",
+    "REMOTE_HOST", "REMOTE_PORT", "REMOTE_USER", "REQUEST_METHOD",
+    "REQUEST_URI", "SCRIPT_FILENAME", "SCRIPT_NAME", "SERVER_ADMIN",
+    "SERVER_NAME", "SERVER_PORT", "SERVER_SOFTWARE"]
+
+def log_env(req, varnames=[]):
     env_keys = req.environ.keys()
+    if varnames:
+        env_keys = [item for item in env_keys if item in varnames]
     env_keys.sort()
 
     log_this("Here is the environment:")
@@ -880,14 +889,31 @@ def show_board(req, board):
     # show some more stuff:
     #  uptime of the board
 
-    cmd_str = bmap["run_cmd"]
-    run_map = { "command": "uptime" }
+    cmd_str = bmap.get("run_cmd", None)
+    if cmd_str:
+        run_map = { "command": "uptime" }
 
-    cmd_str = get_interpolated_str(cmd_str, bmap, run_map)
-    lines, rcode, msg = run_command(cmd_str)
+        cmd_str = get_interpolated_str(cmd_str, bmap, run_map)
+        lines, rcode, msg = run_command(cmd_str)
+    else:
+        lines = ["<i>Board does not have a 'run_cmd' specified</i>"]
+        rcode = 0
+
     if rcode:
         lines = ["<i>problem getting uptime</i>"]
     req.html.append("<b>Uptime:</b> %s<BR>" % lines[0])
+
+    # show a form to execute a command on the board
+    req.html.append("<p>")
+    req.html.append("Command to execute on board:")
+    url = req.config.url_base + os.sep + "api/v0.2/devices/%s/run/" % board
+
+    req.html.append("""<FORM METHOD="POST" ACTION="%s">
+    <INPUT type="text" name="command" width=50></input><BR>
+    <INPUT type="hidden" name="device_ip" value="*"></input>
+    <INPUT type="hidden" name="username" value="*"></input>
+    <INPUT type="submit" name="submit_button" value="Run"></input>
+    </FORM>""" % url)
 
     req.html.append("</td></tr></table>\n")
 
@@ -1379,6 +1405,39 @@ def do_board_run(req, board, board_map, rest):
     req.send_api_response(RSLT_OK, { "data": data } )
     return
 
+def parse_multipart(data):
+    boundary = data[:256].split("\r\n")[0]
+    #dlog_this("boundary='%s'" % boundary)
+    if not boundary.startswith("--"):
+        return {}
+
+    data_dict = {}
+    section_list = data.split(boundary)
+    #dlog_this("section_list=%s" % section_list)
+    for section in section_list:
+        #dlog_this("section='%s'" % section)
+        if not section or section=="--\r\n":
+            continue
+        if not section.startswith("\r\nContent-Disposition: form-data;"):
+            log_this("unrecognized section in form data: '%s'" % section)
+            continue
+        key = section.split("name=")[1].split(";")[0].split('\r')[0].replace('"','')
+        dlog_this("key=%s" % key)
+        try:
+            val_parts = section.split("\r\n")[3:-1]
+        except IndexError:
+            log_this("unrecognized syntax in form data: '%s'" % section)
+            continue
+        #dlog_this("val_parts=%s" % val_parts)
+        value = "\r\n".join(val_parts)
+        dlog_this("value='%s'" % value)
+        data_dict[key] = value
+        if key=="file":
+            filename = section.split("filename=")[1].split(";")[0].split('\r')[0].replace('"','')
+            data_dict["filename"] = filename
+
+    return data_dict
+
 # upload operation:
 #   get data from request and put it into a local file
 #   use "upload_cmd" command to transfer it to the board
@@ -1396,45 +1455,50 @@ def do_board_upload(req, board, board_map, rest):
         return
 
     # get data for the upload
-    dlog_this("req.form=%s" % str(req.form))
-    dest_path = req.form.getvalue("path")
+    form_data = req.form.value
+    dlog_this("req.form.value=%s" % str(form_data))
+    if "Content-Disposition:" in form_data:
+        form_dict = parse_multipart(form_data)
+    else:
+        # this probably won't work, but what have I got to lose?
+        form_dict = req.form
+
+    dlog_this("form_dict=%s" % form_dict)
+
+    dest_path = form_dict["path"]
     #dest_path = req.form["data"].value
     dlog_this("dest_path=%s" % dest_path)
+    filename = form_dict["filename"]
+    dlog_this("filename=%s" % filename)
+    data = form_dict["file"]
 
     # make sure board supports upload operation
     cmd_str = board_map.get("upload_cmd", None)
     if not cmd_str:
-        msg = "Device '%s' is not configured to run commands" % board
+        msg = "Device '%s' is not configured with upload_cmd" % board
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
     # read file from form data into temp file on lcserver host system
     tmpdir = tempfile.mkdtemp()
-    src_filename = os.path.basename(dest_path)
-    #save_file(req, "file", tmpdir)
-
-    has_file = req.form.has_key("file")
-
-    if true:
-        msg = "Upload code not finished. has_file=%s" % has_file
-        req.send_api_response_msg(RSLT_FAIL, msg)
-        return
+    #src_filename = os.path.basename(dest_path)
+    staged_path=tmpdir + "/" + filename
+    with open(staged_path, "wb") as fd:
+        fd.write(data)
 
     upload_map = { "src": staged_path, "dest": dest_path }
     cmd_str = get_interpolated_str(cmd_str, board_map, upload_map)
 
     log_this("executing upload command: %s" % cmd_str)
-    rcode, result = getstatusoutput(cmd_str)
-
-
-    # clean up temporary files
-    tmpdir = tempfile.mkdtemp()
-
     lines, rcode, msg = run_command(cmd_str)
     if msg:
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
     dlog_this("result lines=%s" % lines)
+
+    # clean up temporary files
+    os.remove(staged_path)
+    os.rmdir(tmpdir)
 
     data = { "return_code": rcode, "data": lines }
     jdata = json.dumps(data)
@@ -2100,7 +2164,10 @@ def do_api(req):
 def handle_request(environ, req):
     req.environ = environ
 
-    #log_env(req)
+    # debug request data
+    if debug:
+        log_env(req, CGI_VARS)
+        dlog_this("form.value=%s" % req.form.value)
 
     # determine action, if any
     try:
