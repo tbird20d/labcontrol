@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 # SPDX-License-Identifier:  MIT
 # vim: set ts=4 sw=4 et :
 #
@@ -28,14 +28,20 @@
 import os
 import sys
 import tempfile
+import importlib
 
 # avoid UnicodeEncodeError exceptions by switching my default encoding
 if sys.version_info[0] < 3:
-    reload(sys)
+    importlib.reload(sys)
     sys.setdefaultencoding('utf8')
 
 import requests
-import urllib
+# FIXTHIS - python 2to3 added the following urllib imports
+# It's not clear that urllib.request or urllib.error are needed
+# They are not used anywhere.  Comment them out for now.
+#import urllib.request, urllib.parse, urllib.error
+import urllib.parse
+
 try:
     import simplejson as json
 except ImportError:
@@ -433,13 +439,13 @@ def usage(rcode, options=[]):
 
     # check if command is legal
     if command and command not in command_help.keys():
-        print "Unknown command: %s" % command
+        print("Unknown command: %s" % command)
         command = ""
         # drop through to showing list of commands
 
     if not command:
         # show list of commands
-        print """Usage: lc [global_options] command [options]
+        print("""Usage: lc [global_options] command [options]
 
 Here are the available global options:
  -h, --help     Show this usage help
@@ -449,17 +455,17 @@ Here are the available global options:
  --debug        Show debugging information
 
 command is one of:
-"""
-        command_list = command_help.keys()
+""")
+        command_list = list(command_help.keys())
         command_list.sort()
         for command in command_list:
-            print "  %13s %s" % (command, command_help[command][0])
+            print("  %13s %s" % (command, command_help[command][0]))
     else:
         # print help for individual command
-        print "lc %s: %s" % (command, command_help[command][0])
+        print("lc %s: %s" % (command, command_help[command][0]))
         if command_help[command][1]:
-            print
-            print command_help[command][1]
+            print()
+            print(command_help[command][1])
 
     sys.exit(rcode)
 
@@ -485,7 +491,7 @@ def show_list_title(title):
     global quiet
 
     if not quiet:
-        print title
+        print(title)
         indent = "   "
     else:
         # machine-readable (-q) output omits the title and indent
@@ -543,7 +549,7 @@ def list_objects_via_api(conf, obj_type, options):
     indent = show_list_title("%s on the LabControl server:" % obj_type.title())
     if obj_list:
         for obj in obj_list:
-            print indent + obj
+            print(indent + obj)
     else:
         if options:
             extra_msg = " that match the specified criteria"
@@ -563,7 +569,7 @@ def do_config(conf, options):
     except:
         # list configuration options
         conf_item_list = []
-        for item in conf.__dict__.keys():
+        for item in list(conf.__dict__.keys()):
             # filter out computed items
             if item not in ["API_URL_BASE"]:
                 conf_item_list.append(item)
@@ -572,7 +578,7 @@ def do_config(conf, options):
             print("%s=%s" % (item, getattr(conf, item)))
         sys.exit(1)
 
-    print getattr(conf, name, "")
+    print(getattr(conf, name, ""))
 
 def do_login(conf, options):
     """
@@ -661,7 +667,7 @@ def do_list_mydevices(conf, options):
 
     headers = { "Authorization": "token " + conf.auth_token }
 
-    resp = requests.get(url, headers=headers, verify=False)
+    resp = requests.get(url, headers=headers)
     if resp.status_code != 200:
         error_out("Cannot read %s from server" % obj_type)
 
@@ -692,7 +698,7 @@ def do_list_mydevices(conf, options):
     indent = show_list_title("Boards reserved for me on the LabControl server:")
     if list_data:
         for board in list_data:
-            print indent + board
+            print(indent + board)
     else:
         if not quiet:
             print("No boards found assigned to me.")
@@ -748,14 +754,14 @@ def do_power(conf, options):
 
     # report status depending on operation
     if operation in ["on", "off"]:
-        print "Device %s is powered %s" % (board, operation.upper())
+        print("Device %s is powered %s" % (board, operation.upper()))
         return
     if operation == "reboot":
-        print "Device %s was rebooted." % board
+        print("Device %s was rebooted." % board)
         return
     if operation == "status":
         power_status = resp_data["data"]
-        print "Device %s is powered %s" % (board, power_status)
+        print("Device %s is powered %s" % (board, power_status))
         return
 
     # this seems unlikely, given the checks above
@@ -805,7 +811,7 @@ def do_run(conf, options):
             reason = resp_data["message"]
         except:
             reason = "for unknown reasons"
-        error_out("Could not do operation 'power %s'. %s" % (operation, reason))
+        error_out("Could not do operation 'run %s'. %s" % (operation, reason))
 
     # command was performed, result was "success"
     return_code = resp_data["data"]["return_code"]
@@ -1013,14 +1019,14 @@ def do_status(conf, options):
             reason = "Unknown failure from server"
         error_out(reason)
 
-    print "Status for board: %s" % board
+    print("Status for board: %s" % board)
 
     # show who is currently using board
     assigned_to = resp_data.get("AssignedTo", "nobody")
     if assigned_to != "nobody":
-        print 'Board "%s" is assigned to user "%s".' % (board, assigned_to)
+        print('Board "%s" is assigned to user "%s".' % (board, assigned_to))
     else:
-        print 'Board "%s" is not reserved.' % (board)
+        print('Board "%s" is not reserved.' % (board))
 
     # FIXTHIS - do_status could report other board status data (power, etc.):
     #   board power-on status
@@ -1049,7 +1055,7 @@ def do_get_resource(conf, options):
 
     if options:
         # make feature string suitable to append to url
-        feature_str = urllib.quote(options[0]).replace("/", "%2F")
+        feature_str = urllib.parse.quote(options[0]).replace("/", "%2F")
         url += "/" +  feature_str.replace("/", "%2F")
 
     headers = { "Authorization": "token " + conf.auth_token }
@@ -1156,10 +1162,10 @@ def do_power_measurement(conf, options, cmd):
         return
 
     if operation == "stop":
-        print "Capture was stopped."
+        print("Capture was stopped.")
         return
     if operation == "delete":
-        print "Capture was deleted from server."
+        print("Capture was deleted from server.")
         return
     if operation == "get-data":
         # write json capture data to stdout
@@ -1350,7 +1356,7 @@ def main():
         error_out('Missing command\nUse "lc help" to get usage help.', 1)
 
     # parse arguments
-    command_list = command_help.keys()
+    command_list = list(command_help.keys())
     command_list.extend(["--help", "-h", "pm"])
     options = []
 
@@ -1408,7 +1414,7 @@ def main():
         usage(0, options)
 
     if command == "version":
-        print "lc: version %d.%d.%d%s" % VERSION
+        print("lc: version %d.%d.%d%s" % VERSION)
         sys.exit(0)
 
     # read config
@@ -1422,7 +1428,7 @@ def main():
         except:
             # list configuration options
             conf_item_list = []
-            for item in conf.__dict__.keys():
+            for item in list(conf.__dict__.keys()):
                 # filter out computed items
                 if item not in ["API_URL_BASE"]:
                     conf_item_list.append(item)
@@ -1431,7 +1437,7 @@ def main():
                 print("%s=%s" % (item, getattr(conf, item)))
             sys.exit(1)
 
-        print getattr(conf, name, "")
+        print(getattr(conf, name, ""))
 
     if command == "login":
         do_login(conf, options)
@@ -1489,7 +1495,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except requests.ConnectionError, e:
+    except requests.ConnectionError as e:
         error_out("""Could not connect to server: %s.
 Check that server is running and that you have the right
 server in your configuration file.""" % str(e))
