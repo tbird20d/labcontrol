@@ -1,0 +1,9 @@
+<h1>LabControl administration</h1>
+
+Back to <a href="%(url_base)s/Main">Main</a>
+
+Here is a list of administration activities you can perform:
+<ul>
+<li><a href="%(page_url)s?action=create_user">Create User</a></li>
+</ul>
+<hr>

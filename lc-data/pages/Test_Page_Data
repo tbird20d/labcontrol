@@ -1,0 +1,39 @@
+<h1>Test Page Data</h1>
+This page is here to test of interpolating page_data items
+into a page while rendering it for the LabControl server.
+<p>
+
+Here is a link back to the <a href="%(url_base)s/Main">Main</a> page.
+<p>
+
+<h2>static items</h2>
+<b>url_base</b>: %(url_base)s<br>
+<b>page_url</b>: %(page_url)s<br>
+<b>page_name</b>: %(page_name)s<br>
+<b>version</b>: %(version)s<br>
+<p>
+
+<h2>python dynamic items</h2>
+<b>asctime</b>: %(asctime)s<br>
+<b>timestamp</b>: %(timestamp)s<br>
+<b>message<br>: %(message)s<br>
+<p>
+<h2>User information</h2>
+<b>user_name</b>: %(user_name)s<br>
+User admin flag:<b>user_admin</b>: %(user_admin)s<br>
+
+<h2>external dynamic items</h2>
+<b>labcontrol git_commit</b>: %(git_commit)s<br>
+<b>labcontrol git_describe</b>: %(git_describe)s<br>
+
+<h2>forms</h2>
+<i>This is a link to the login form.  It changes to the user_name and a link to
+logout, when the user is logged in.</i>
+<br>
+<b>login_link</b>: %(login_link)s<br>
+<b>login_link_nobr</b>: %(login_link_nobr)s<br>
+<b>search_form</b>: %(search_form)s<br>
+<b>search_form_nobr</b>: %(search_form_nobr)s<br>
+
+<h2>menus</h2>
+Put menus here
