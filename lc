@@ -58,7 +58,7 @@ else:
 # MAJOR, MINOR, REVISION, extra_revision
 # extra_revision, if non-empty, should start with a dash
 # (e.g. "-next", "-rc1")
-VERSION = (0, 5, 0, "")
+VERSION = (0, 6, 0, "")
 
 # this is from the REST API standard
 RSLT_OK = "success"
