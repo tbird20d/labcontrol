@@ -143,9 +143,9 @@ config.page_dir = base_dir + "/pages"
 # search forms, menus, variable data, etc.
 #
 # items available to use are:
-#   page_url, page_name, asctime, timestamp, version
+#   url_base, page_url, page_name, asctime, timestamp, version
 #   version, git_commit, git_describe, body_attrs
-#   login_form
+#   login_form (and a bunch more)
 
 class page_data_class:
     def __init__(self, req, init_data = {} ):
@@ -163,9 +163,9 @@ class page_data_class:
             if self.data.has_key("default"):
                 item = self.data["default"]
             else:
-                item = req.html_error('&lt;missing data value for key "%s"&gt' % key)
+                item = self.req.html_error('&lt;missing data value for key "%s"&gt' % key)
         if callable(item):
-            return item(self.req)
+            return item()
         else:
             return item
 
@@ -174,7 +174,7 @@ class page_data_class:
     # use with caution: try to prevent something like 'cat /etc/passwd'
     # !! never call this with user-provided data !!
     # this is for internal use only (e.g. see git_commit)
-    def external_info(self, req, cmd, new_dir=None):
+    def external_info(self, cmd, new_dir=None):
         import commands
 
         saved_cur_dir = os.getcwd()
@@ -185,101 +185,106 @@ class page_data_class:
             if status==0:
                 output
             else:
-                req.add_to_message("problem executing command: '%s'" % cmd)
+                self.req.add_to_message("problem executing command: '%s'" % cmd)
                 output = "#no data#"
         except:
             output = "#no data#"
-            req.add_msg_and_traceback('exception in %s' % cmd)
+            self.req.add_msg_and_traceback('exception in %s' % cmd)
 
         if new_dir:
             os.chdir(saved_cur_dir)
             return output
 
-    def page_url(self, req):
-        return req.page_url
+    def url_base(self):
+        return self.req.config.url_base
 
-    def page_name(self, req):
-        return req.page_name
+    def page_url(self):
+        return self.req.page_url
 
-    def asctime(self, req):
+    def page_name(self):
+        return self.req.page_name
+
+    def asctime(self):
         return time.asctime()
 
-    def timestamp(self, req):
+    def timestamp(self):
         return get_timestamp()
 
-    def version(self, req):
+    def version(self):
         return "%d.%d.%d" % VERSION
 
-    def git_commit(self, req):
+    def git_commit(self):
         cmd = 'git log -n 1 --format="%h"'
-        html = self.external_info(req, cmd, base_dir)
+        html = self.external_info(cmd, base_dir)
         return '#' + html.strip()
 
-    def git_describe(self, req):
+    def git_describe(self):
         cmd = 'git describe'
-        html = self.external_info(req, cmd, base_dir)
+        html = self.external_info(cmd, base_dir)
         return html
 
-    def body_attrs(self, req):
-        html = """ondblclick="location.href='%s?action=edit'" """ % req.page_url
+    def user_name(self):
+        return self.req.user.name
+
+    def user_admin(self):
+        return str(self.req.user.admin)
+
+    # support edit action on a double-click on the page
+    # FIXTHIS - the 'edit' action for a page is not currently supported
+    def edit_on_dblclick(self):
+        html = """ondblclick="location.href='%s?action=edit'" """ % self.req.page_url
         return ""
         return html
 
-    def login_form(self, req):
-        if req.user.name=="not-logged-in":
-            create_str = ""
-            if req.config.user_creation_allowed:
-                create_str = " or create account"
-            html = """<a href="%s?action=user.loginform">Login%s</a>""" % (req.page_url, create_str)
+    def login_link(self):
+        if self.req.user.name=="not-logged-in":
+            html = """<a href="%s?action=user_loginform">Login</a>""" % (self.req.page_url)
         else:
-            html =  """<a href="%s?action=user.editform">%s</a><br>
-    <a href="%s?action=user.logout">Logout</a>""" % (req.page_url, req.user.name, req.page_url)
+            html =  """<a href="%s?action=user_editform">%s</a><br>
+                       <a href="%s?action=user_logout">Logout</a>""" % \
+            (self.req.page_url, self.req.user.name, self.req.page_url)
         return html
 
-    def login_form_nobr(self, req):
-        if req.user.name=="not-logged-in":
-            return self.login_form(req)
+    def login_link_nobr(self):
+        if self.req.user.name=="not-logged-in":
+            return self.login_link()
         else:
-            html =  """<a href="%s?action=user.editform">%s</a> <a href="%s?action=user.logout">Logout</a>""" % (req.page_url, req.user.name, req.page_url)
+            html =  """<a href="%s?action=user.editform">%s</a> <a href="%s?action=user.logout">Logout</a>""" % (self.req.page_url, self.req.user.name, self.req.page_url)
         return html
 
-    def search_form(self, req):
+    def search_form(self):
         html = """<FORM METHOD="POST" ACTION="%s?action=search">
     <table id=search_table><tr><td align=right>
     <INPUT type="text" name="search_string" width=15></input>
     </td></tr><tr><td align=right>
     <INPUT type="submit" name="search" value="Search"></input>
     </td></tr></table></FORM>
-""" % req.page_url
+""" % self.req.page_url
         return html
 
-    def search_form_nobr(self, req):
+    def search_form_nobr(self):
         html = """<FORM METHOD="POST" ACTION="%s?action=search">
     <INPUT type="text" name="search_string" width=15></input>
     <INPUT type="submit" name="search" value="Search"></input>
     </FORM>
-""" % req.page_url
+""" % self.req.page_url
         return html
 
-    def message(self, req):
-        if req.message and not req.message_hold:
+    def message(self):
+        if self.req.message and not self.req.message_hold:
             html = """<table border=1 bgcolor=lightgreen width=100%%>
             <tr><td>%s</td></tr>
-            </table>""" % req.message
+            </table>""" % self.req.message
             req.message = ""
         else:
             html = ""
         return html
 
-    def user_name(self, req):
-        return req.user.name
 
-    def user_admin(self, req):
-        return str(req.user.admin)
-
-    def user_id(self, req):
-        return req.user.id
-
+class user_class:
+    def __init__(self):
+        self.name = "not-logged-in"
+        self.admin = False
 
 class req_class:
     def __init__(self, config, form):
@@ -392,27 +397,37 @@ class req_class:
         self.html.append(json_data)
 
     def get_user(self):
-        # returns valid user name or None
-        user = None
+        return self.user.name
+
+    def set_user(self):
+        # look up the user using the authorization token and set req.user
+
+        # FIXTHIS - should have a reverse index from auth-token to user name
+        # to speed this up.  For now a linear scan of file contents is OK.
+        self.user = user_class()
 
         AUTH_TYPE = self.environ.get("AUTH_TYPE", "none")
         if AUTH_TYPE != "token":
-            return user
+            log_this("Error: Invalid AUTH_TYPE of %s" % AUTH_TYPE)
+            return
+
         http_auth = self.environ.get("HTTP_AUTHORIZATION", "nobody")
         if http_auth == "nobody":
-            return user
+            log_this("Error: HTTP_AUTHORIZATION of 'nobody'")
+            return
 
         # scan user files for matching authentication token
         token = http_auth.split()[1]
         if token == "not-a-valid-token":
-            return user
+            log_this("Error: HTTP_AUTHORIZATOIN 'not-a-valid-token'")
+            return
 
         user_dir = self.config.data_dir + "/users"
         try:
             user_files = os.listdir( user_dir )
         except:
             log_this("Error: could not read user files from " + user_dir)
-            return user
+            return
 
         for ufile in user_files:
             upath = user_dir + "/" + ufile
@@ -434,11 +449,13 @@ class req_class:
                 try:
                     user = udata["name"]
                 except:
-                    log_this("Error: missing 'name' field in user data file %s, in req.get_user()" % upath)
+                    log_this("Error: missing 'name' field in user data file %s, in req.set_user()" % upath)
                 break
 
-        log_this("user=%s" % str(user))
-        return user
+        self.user.name = udata["name"]
+        self.user.admin = udata.get("admin", "False")
+
+        dlog_this("in req.set_user: user=%s" % str(self.user.name))
 
 # end of req_class
 #######################
@@ -2091,6 +2108,7 @@ def return_api_resource_action(req, resource, res_type, rest):
     req.send_api_response_msg(RSLT_FAIL, msg)
 
 # returns token, reason - where token is non-empty on success
+# as a side effect, this sets req.user
 def authenticate_user(req, user, password):
     # scan user files for matching user
     user_dir = req.config.data_dir + "/users"
@@ -2328,6 +2346,11 @@ def do_api(req):
 def handle_request(environ, req):
     req.environ = environ
 
+    dlog_this("in handle_request: debug flag is set")
+
+    # look up user, for those that pass an authorization token
+    req.set_user()
+
     # debug request data
     if debug:
         log_env(req, CGI_VARS)
@@ -2381,11 +2404,6 @@ def handle_request(environ, req):
     log_this("in handle_request: action='%s', page_name='%s'" % (action, page_name))
     #req.add_to_message("in main request loop: action='%s'<br>" % action)
 
-    AUTH_TYPE=req.environ.get("AUTH_TYPE", "none")
-    #log_this("in handle_request: AUTH_TYPE='%s'" % AUTH_TYPE)
-
-    # FIXTHIS - look up user by authentication token
-
     # perform action
     action_list = ["show", "api", "raw",
             "add_board", "add_resource", "put_request",
@@ -2393,7 +2411,8 @@ def handle_request(environ, req):
             "get_board", "get_resource", "get_request",
             "remove_board", "remove_resource", "remove_request",
             "update_board", "update_resource", "update_request",
-            "put_log", "get_log"]
+            "put_log", "get_log",
+            "user_login", "user_editform", "user_logout"]
 
     # map action names to "do_<action>" functions
     if action in action_list:
