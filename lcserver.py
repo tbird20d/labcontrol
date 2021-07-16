@@ -97,6 +97,11 @@ if not os.path.exists(base_dir):
 if not os.path.exists(base_dir):
     base_dir = "/home/tbird/work/labcontrol/lc-data"
 
+# if the file 'debug' exists in the lc-data directory, then
+# turn on the debug flag (for extra logging)
+if os.path.exists(base_dir + "/debug"):
+    debug = True
+
 RSLT_FAIL="fail"
 RSLT_OK="success"
 
@@ -133,9 +138,153 @@ config.files_url_base = "/lc-data"
 config.files_dir = base_dir + "/files"
 config.page_dir = base_dir + "/pages"
 
+# this class has data that can be included on a page
+# using %(varname)s.  This includes things like login forms,
+# search forms, menus, variable data, etc.
+#
+# items available to use are:
+#   page_url, page_name, asctime, timestamp, version
+#   version, git_commit, git_describe, body_attrs
+#   login_form
+
+class page_data_class:
+    def __init__(self, req, init_data = {} ):
+       self.data = {}
+       self.req = req
+
+    def __getitem__(self, key):
+        # return value for key
+        # if the value is callable, return the string returned by calling it
+        if self.data.has_key(key):
+            item = self.data[key]
+        elif hasattr(self, key):
+            item = getattr(self, key)
+        else:
+            if self.data.has_key("default"):
+                item = self.data["default"]
+            else:
+                item = req.html_error('&lt;missing data value for key "%s"&gt' % key)
+        if callable(item):
+            return item(self.req)
+        else:
+            return item
+
+    # this allows for getting arbitrary information for the system
+    # using an external command
+    # use with caution: try to prevent something like 'cat /etc/passwd'
+    # !! never call this with user-provided data !!
+    # this is for internal use only (e.g. see git_commit)
+    def external_info(self, req, cmd, new_dir=None):
+        import commands
+
+        saved_cur_dir = os.getcwd()
+        try:
+            if new_dir:
+                os.chdir(new_dir)
+            status, output = commands.getstatusoutput(cmd)
+            if status==0:
+                output
+            else:
+                req.add_to_message("problem executing command: '%s'" % cmd)
+                output = "#no data#"
+        except:
+            output = "#no data#"
+            req.add_msg_and_traceback('exception in %s' % cmd)
+
+        if new_dir:
+            os.chdir(saved_cur_dir)
+            return output
+
+    def page_url(self, req):
+        return req.page_url
+
+    def page_name(self, req):
+        return req.page_name
+
+    def asctime(self, req):
+        return time.asctime()
+
+    def timestamp(self, req):
+        return get_timestamp()
+
+    def version(self, req):
+        return "%d.%d.%d" % VERSION
+
+    def git_commit(self, req):
+        cmd = 'git log -n 1 --format="%h"'
+        html = self.external_info(req, cmd, base_dir)
+        return '#' + html.strip()
+
+    def git_describe(self, req):
+        cmd = 'git describe'
+        html = self.external_info(req, cmd, base_dir)
+        return html
+
+    def body_attrs(self, req):
+        html = """ondblclick="location.href='%s?action=edit'" """ % req.page_url
+        return ""
+        return html
+
+    def login_form(self, req):
+        if req.user.name=="not-logged-in":
+            create_str = ""
+            if req.config.user_creation_allowed:
+                create_str = " or create account"
+            html = """<a href="%s?action=user.loginform">Login%s</a>""" % (req.page_url, create_str)
+        else:
+            html =  """<a href="%s?action=user.editform">%s</a><br>
+    <a href="%s?action=user.logout">Logout</a>""" % (req.page_url, req.user.name, req.page_url)
+        return html
+
+    def login_form_nobr(self, req):
+        if req.user.name=="not-logged-in":
+            return self.login_form(req)
+        else:
+            html =  """<a href="%s?action=user.editform">%s</a> <a href="%s?action=user.logout">Logout</a>""" % (req.page_url, req.user.name, req.page_url)
+        return html
+
+    def search_form(self, req):
+        html = """<FORM METHOD="POST" ACTION="%s?action=search">
+    <table id=search_table><tr><td align=right>
+    <INPUT type="text" name="search_string" width=15></input>
+    </td></tr><tr><td align=right>
+    <INPUT type="submit" name="search" value="Search"></input>
+    </td></tr></table></FORM>
+""" % req.page_url
+        return html
+
+    def search_form_nobr(self, req):
+        html = """<FORM METHOD="POST" ACTION="%s?action=search">
+    <INPUT type="text" name="search_string" width=15></input>
+    <INPUT type="submit" name="search" value="Search"></input>
+    </FORM>
+""" % req.page_url
+        return html
+
+    def message(self, req):
+        if req.message and not req.message_hold:
+            html = """<table border=1 bgcolor=lightgreen width=100%%>
+            <tr><td>%s</td></tr>
+            </table>""" % req.message
+            req.message = ""
+        else:
+            html = ""
+        return html
+
+    def user_name(self, req):
+        return req.user.name
+
+    def user_admin(self, req):
+        return str(req.user.admin)
+
+    def user_id(self, req):
+        return req.user.id
+
+
 class req_class:
     def __init__(self, config, form):
         self.config = config
+        self.data = page_data_class(self)
         self.header_shown = False
         self.message = ""
         self.page_name = ""
@@ -168,7 +317,7 @@ class req_class:
         if not page_name:
             page_filename = self.page_filename()
         else:
-                page_filename = self.config.page_dir+os.sep+page_name
+            page_filename = self.config.page_dir+os.sep+page_name
 
         return open(page_filename).read()
 
@@ -942,37 +1091,53 @@ def show_users(req):
 # this is the main human interface to the server
 def do_show(req):
     req.show_header("Lab Control objects")
-    dlog_this("in do_show, req.page_name='%s'\n" % req.page_name)
-    #req.html.append("req.page_name='%s' <br><br>" % req.page_name)
-    #req.html.append("req.obj_type='%s' <br><br>" % req.obj_type)
 
-    if req.page_name not in ["boards", "resources", "users", "requests", "logs", "main"]:
+    page_name = req.page_name
+    dlog_this("in do_show, page_name='%s'\n" % page_name)
+
+    handled = False
+    if page_name=="boards":
+        show_boards(req)
+        handled = True
+    if page_name == "users":
+        show_users(req)
+        handled = True
+    if page_name == "resources":
+        req.html.append("<H1>List of resources</h1>")
+        req.html.append(file_list_html(req, "data", "resources", ".json"))
+        handled = True
+    if page_name == "requests":
+        req.html.append("<H1>Table of requests</H1>")
+        show_request_table(req)
+        handled = True
+    if page_name == "logs":
+        req.html.append("<H1>Table of logs</H1>")
+        req.html.append(file_list_html(req, "files", "logs", ".txt"))
+        handled = True
+
+    # check for a page from the page directory here
+    if os.path.isfile(req.page_filename()):
+        raw_data = req.read_page()
+        # interpolate data into the page
+        data = raw_data % req.data
+        req.html.append(data)
+        handled = True
+
+    if not handled:
         # check for object name here, and show individual object
         #   status and control interface
-        if req.obj_type not in ["board"]:
-            title = "Error - unsupported object type '%s'" % req.obj_type
-            req.add_to_message(title)
-        else:
+        if req.obj_type in ["board"]:
             # show individual object
             show_object(req, req.obj_type, req.page_name)
-    else:
-        if req.page_name=="boards":
-            show_boards(req)
-        elif req.page_name == "users":
-            show_users(req)
-        elif req.page_name == "resources":
-            req.html.append("<H1>List of resources</h1>")
-            req.html.append(file_list_html(req, "data", "resources", ".json"))
-        elif req.page_name == "requests":
-            req.html.append("<H1>Table of requests</H1>")
-            show_request_table(req)
-        elif req.page_name == "logs":
-            req.html.append("<H1>Table of logs</H1>")
-            req.html.append(file_list_html(req, "files", "logs", ".txt"))
+        else:
+            title = "Error - unsupported object type '%s'" % req.obj_type
+            req.add_to_message(title)
 
-    if req.page_name != "main":
+    # print a divider between page data and the object menus
+    if req.page_name != "Main":
         req.html.append("<br><hr>")
 
+    # always show the object menu
     req.html.append("<H1>Lab Control objects on this server</h1>")
     req.html.append("""
 Here are links to the different Lab Control objects:<br>
@@ -992,7 +1157,6 @@ Here are links to the different Lab Control objects:<br>
     req.show_footer()
 
 # show raw objects
-#  if page_name is "main", show a list of different object types
 def do_raw(req):
     req.show_header("Lab Control Raw objects")
     log_this("in do_raw, req.page_name='%s'\n" % req.page_name)
@@ -2180,7 +2344,7 @@ def handle_request(environ, req):
     req.action = action
 
     # get page name (last element of path)
-    path_info = environ.get("PATH_INFO", "%s/main" % req.config.url_base)
+    path_info = environ.get("PATH_INFO", "%s/Main" % req.config.url_base)
     if path_info.startswith(req.config.url_base):
         obj_path = path_info[len(req.config.url_base):]
     else:
@@ -2189,7 +2353,7 @@ def handle_request(environ, req):
     page_name = os.path.basename(obj_path)
     obj_type = os.path.dirname(obj_path)
     if not page_name:
-        page_name = "main"
+        page_name = "Main"
     req.set_page_name(page_name)
     req.set_obj_type(obj_type)
 
