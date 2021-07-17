@@ -684,7 +684,7 @@ def do_list_mydevices(conf, options):
         except:
             reason = "for unknown reasons"
         reason = "%s" % reason
-        error_out("Could not do operation '%s %s'. From server:\n %s" % (res_type, operation, reason))
+        error_out("Could not do operation 'mydevices'. From server:\n %s" % (reason))
 
     list_data = resp_data["data"]
     if type(list_data) != type([]):
