@@ -176,6 +176,9 @@ class fServerRequestHandler(CGIHTTPServer.CGIHTTPRequestHandler):
         if authorization:
             env['HTTP_AUTHORIZATION'] = authorization
             env['AUTH_TYPE'] = authorization.split()[0]
+        else:
+            env.pop('HTTP_AUTHORIZATION', None)
+            env.pop('AUTH_TYPE', None)
 
         # XXX REMOTE_USER
         # XXX REMOTE_IDENT
