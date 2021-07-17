@@ -1213,12 +1213,13 @@ def show_users(req):
 # show the web ui for objects on the server
 # this is the main human interface to the server
 def do_show(req):
-    req.show_header("Lab Control objects")
-
     page_name = req.page_name
     dlog_this("in do_show, page_name='%s'\n" % page_name)
 
     handled = False
+    if page_name in ["boards", "users", "resources", "requests", "logs"]:
+        req.show_header("Lab Control objects")
+
     if page_name=="boards":
         show_boards(req)
         handled = True
@@ -1243,6 +1244,7 @@ def do_show(req):
         raw_data = req.read_page()
         # interpolate data into the page
         data = raw_data % req.data
+        req.show_header("")
         req.html.append(data)
         handled = True
 
