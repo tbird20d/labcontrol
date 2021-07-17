@@ -152,8 +152,9 @@ config.page_dir = base_dir + "/pages"
 
 class page_data_class:
     def __init__(self, req, init_data = {} ):
-       self.data = {}
+       self.data = init_data
        self.req = req
+       self.cookies = ""
 
     def __getitem__(self, key):
         # return value for key
@@ -258,6 +259,10 @@ class page_data_class:
             html =  """<a href="%s?action=user_edit_form">%s</a> <a href="%s?action=logout">Logout</a>""" % (self.req.page_url, self.req.user.name, self.req.page_url)
         return html
 
+    def logout_link(self):
+        return """<a href="%s?action=logout">Logout</a>""" % \
+                (self.req.page_url)
+
     def search_form(self):
         html = """<FORM METHOD="POST" ACTION="%s?action=search">
     <table id=search_table><tr><td align=right>
@@ -360,7 +365,12 @@ class req_class:
         if self.header_shown:
             return
 
-        self.header = """Content-type: text/html\n\n"""
+        # new system
+        self.header = """Content-type: text/html\n"""
+        if self.data.cookies:
+            self.header += self.data.cookies + "\n\n"
+        else:
+            self.header += "\n"
 
         # render the header markup
         self.html.append(self.header)
@@ -412,26 +422,31 @@ class req_class:
         # to speed this up.  For now a linear scan of file contents is OK.
         self.user = user_class()
 
-        AUTH_TYPE = self.environ.get("AUTH_TYPE", "none")
-        if AUTH_TYPE != "token":
-            log_this("Error: Invalid AUTH_TYPE of %s" % AUTH_TYPE)
-            return
 
+        # There are two ways to set the token, one via the AUTH_TYPE and
+        # HTTP_AUTHORIZATION, and the other via HTTP_COOKIE
+        # either is valid
+        AUTH_TYPE = self.environ.get("AUTH_TYPE", "none")
         http_auth = self.environ.get("HTTP_AUTHORIZATION", "nobody")
-        if http_auth == "nobody":
-            log_this("Error: HTTP_AUTHORIZATION of 'nobody'")
-            return
+        HTTP_COOKIE = self.environ.get("HTTP_COOKIE", "")
+
+        cookie_token = ""
+        auth_token = ""
+        if "auth_token=" in HTTP_COOKIE:
+            cookie_token = HTTP_COOKIE.split("auth_token=")[1]
+            if ";" in cookie_token:
+                cookie_token = cookie_token.split(";")[0]
+        if AUTH_TYPE == "token" and http_auth != 'nobody':
+            auth_token = http_auth.split()[1]
 
         # scan user files for matching authentication token
-        token = http_auth.split()[1]
 
-        # FIXTHIS - also check cookies for auth_token
-
-        if token == "not-a-valid-token":
+        if auth_token == "not-a-valid-token":
             log_this("Error: HTTP_AUTHORIZATOIN 'not-a-valid-token'")
             return
 
-        dlog_this("token=%s" % token)
+        dlog_this("cookie_token=%s" % cookie_token)
+        dlog_this("auth_token=%s" % auth_token)
 
         user_dir = self.config.data_dir + "/users"
         try:
@@ -457,7 +472,15 @@ class req_class:
                 continue
 
             dlog_this("in get_user: udata= %s" % udata)
-            if token == udata.get("auth_token", "not-a-valid-token"):
+            utoken = udata.get("auth_token", "not-a-valid-token")
+
+            if cookie_token:
+                if cookie_token == utoken:
+                    found_match = True
+                    break
+            elif auth_token == utoken:
+                # only check auth_token if cookie_token is not set
+                # lc never sets the cookie, only the auth_token
                 found_match = True
                 break
 
@@ -524,8 +547,6 @@ def do_login_form(req):
 
 def do_login(req):
     # process user login
-    req.show_header("LabControl User login")
-    # process user login
     name = req.form.getfirst("name", "")
     password = req.form.getfirst("password")
     #req.add_to_message("processing login form: name=%s<br>" % name)
@@ -538,16 +559,21 @@ def do_login(req):
     max_age = 604800
     cookies = "auth_token=0;"
 
+    html = ""
     if token:
-        req.html.append('<H1 align="center">You successfully logged in!</H1><p>')
-        req.html.append('Click to return to <a href="%s">%s</a>' % \
-                (req.page_url, req.page_name))
+        html += '<H1 align="center">You successfully logged in!</H1><p>\n'
+        html += 'Click to return to <a href="%s">%s</a>' % \
+                (req.page_url, req.page_name)
         cookies = "auth_token=%s; Max-Age=%s;" % (token, max_age)
     else:
-        req.html.append(req.html_error("Invalid login: account or password did not match"))
+        html += req.html_error("Invalid login: account or password did not match")
 
     # send cookies back to user
     req.data.cookies = "Set-Cookie: %s" % cookies
+
+    # process user login
+    req.show_header("LabControl User login")
+    req.html.append(html)
 
 def do_user_edit_form(req):
     # show user edit form
@@ -563,16 +589,16 @@ def do_user_edit_form(req):
     req.html.append("</td></tr></table>")
 
 def do_logout(req):
-    req.show_header("LabControl User Account logout")
-    # FIXTHIS - remove cookie or auth token or whatever constitues
-    # being logged in
-    req.html.append('<h1 align="center">You have been logged out</h1>')
-    req.html.append('Click here to return to <a href="%s/Main">Main</a>' % req.config.url_base)
+    html = '<h1 align="center">You have been logged out</h1>\n'
+    html += 'Click here to return to <a href="%s/Main">Main</a>' % req.config.url_base
 
-    cookies = "auth_token=0;"
+    cookies = "auth_token=0; expires=Thu, Jan 01 1970 00:00:00 UTC;"
 
-     # send cookies back to user
+    # send cookies back to user
     req.data.cookies = "Set-Cookie: %s" % cookies
+
+    req.show_header("LabControl User Account logout")
+    req.html.append(html)
     return
 
 def get_timestamp():
