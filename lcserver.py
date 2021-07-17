@@ -127,6 +127,10 @@ class config_class:
 config = config_class()
 config.data_dir = base_dir + "/data"
 
+# these need to be customized per installation
+config.lab_name = "timslab"
+config.admin_contact_str = "&lt;tbird20d (at) yahoo (dot) com&gt;"
+
 # crude attempt at auto-detecting url_base
 if os.path.exists("/usr/lib/cgi-bin/lcserver.py"):
     config.url_base = "/cgi-bin/lcserver.py"
@@ -227,6 +231,9 @@ class page_data_class:
 
     def user_admin(self):
         return str(self.req.user.admin)
+
+    def lab_name(self):
+        return str(self.req.config.lab_name)
 
     # support edit action on a double-click on the page
     # FIXTHIS - the 'edit' action for a page is not currently supported
