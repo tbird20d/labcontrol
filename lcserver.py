@@ -10,7 +10,6 @@
 #  files directory = place where file bundles are stored
 #  pages directory = place where web page templates are stored
 #
-#
 # The server implements three interfaces:
 #  1. the human user interace (web pages showing objects and available
 #  actions)
@@ -145,7 +144,7 @@ config.page_dir = base_dir + "/pages"
 # items available to use are:
 #   url_base, page_url, page_name, asctime, timestamp, version
 #   version, git_commit, git_describe, body_attrs
-#   login_form (and a bunch more)
+#   login_link (and a bunch more)
 
 class page_data_class:
     def __init__(self, req, init_data = {} ):
@@ -238,10 +237,10 @@ class page_data_class:
 
     def login_link(self):
         if self.req.user.name=="not-logged-in":
-            html = """<a href="%s?action=user_loginform">Login</a>""" % (self.req.page_url)
+            html = """<a href="%s?action=login_form">Login</a>""" % (self.req.page_url)
         else:
-            html =  """<a href="%s?action=user_editform">%s</a><br>
-                       <a href="%s?action=user_logout">Logout</a>""" % \
+            html =  """<a href="%s?action=user_edit_form">%s</a><br>
+                       <a href="%s?action=logout">Logout</a>""" % \
             (self.req.page_url, self.req.user.name, self.req.page_url)
         return html
 
@@ -494,6 +493,42 @@ def log_env(req, varnames=[]):
     log_this("Here is the environment:")
     for key in env_keys:
         log_this("%s=%s" % (key, req.environ[key]))
+
+def do_login_form(req):
+    # show user login form
+    req.show_header("LabControl User login")
+    req.html.append("""<FORM METHOD="POST" ACTION="%s?action=login">
+<table id=loginform><tr><td>
+  Name:</td><td align="right"><INPUT type="text" name="name" width=15></input></td></tr>
+  <tr><td>Password:</td><td align="right"><INPUT type="password" name="password" width=15></input>
+  </td></tr><tr><td> </td><td align="right">
+  <INPUT type="submit" name="login" value="Login"></input>
+  </td></tr></table></FORM>""" % req.page_url)
+    req.html.append("""<br>Please contact &lt;%s&gt; if you want to create an account""" % req.config.admin_contact_str)
+    req.html.append("</td></tr></table>")
+
+def do_user_edit_form(req):
+    # show user edit form
+    req.show_header("LabControl User Account edit")
+    req.html.append("""<FORM METHOD="POST" ACTION="%s?action=user_edit">
+<table id=loginform><tr><td>
+  Name:</td><td align="right"><INPUT type="text" name="name" width=15></input></td></tr>
+  <tr><td>Password:</td><td align="right"><INPUT type="password" name="password" width=15></input>
+  </td></tr><tr><td> </td><td align="right">
+  <INPUT type="submit" name="login" value="Login"></input>
+  </td></tr></table></FORM>""" % req.page_url)
+    req.html.append("""<br>Please contact &lt;%s&gt; if you want to create an account""" % req.config.admin_contact_str)
+    req.html.append("</td></tr></table>")
+
+def do_logout(req):
+    req.show_header("LabControl User Account logout")
+    # FIXTHIS - remove cookie or auth token or whatever constitues
+    # being logged in
+    req.html.append('<h1 align="center">You have been logged out</h1>')
+    req.html.append('Click here to return to <a href="%s/Main">Main</a>' % req.config.url_base)
+    return
+
+
 
 def get_timestamp():
     t = time.time()
@@ -2412,7 +2447,7 @@ def handle_request(environ, req):
             "remove_board", "remove_resource", "remove_request",
             "update_board", "update_resource", "update_request",
             "put_log", "get_log",
-            "user_login", "user_editform", "user_logout"]
+            "login_form", "login", "user_editform", "logout"]
 
     # map action names to "do_<action>" functions
     if action in action_list:
