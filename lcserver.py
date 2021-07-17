@@ -255,7 +255,7 @@ class page_data_class:
         if self.req.user.name=="not-logged-in":
             return self.login_link()
         else:
-            html =  """<a href="%s?action=user.editform">%s</a> <a href="%s?action=user.logout">Logout</a>""" % (self.req.page_url, self.req.user.name, self.req.page_url)
+            html =  """<a href="%s?action=user_edit_form">%s</a> <a href="%s?action=logout">Logout</a>""" % (self.req.page_url, self.req.user.name, self.req.page_url)
         return html
 
     def search_form(self):
@@ -424,9 +424,14 @@ class req_class:
 
         # scan user files for matching authentication token
         token = http_auth.split()[1]
+
+        # FIXTHIS - also check cookies for auth_token
+
         if token == "not-a-valid-token":
             log_this("Error: HTTP_AUTHORIZATOIN 'not-a-valid-token'")
             return
+
+        dlog_this("token=%s" % token)
 
         user_dir = self.config.data_dir + "/users"
         try:
@@ -435,6 +440,7 @@ class req_class:
             log_this("Error: could not read user files from " + user_dir)
             return
 
+        found_match = False
         for ufile in user_files:
             upath = user_dir + "/" + ufile
             try:
@@ -450,16 +456,17 @@ class req_class:
                 log_this("Error reading json data from file %s" % upath)
                 continue
 
-            #log_this("in get_user: udata= %s" % udata)
+            dlog_this("in get_user: udata= %s" % udata)
             if token == udata.get("auth_token", "not-a-valid-token"):
-                try:
-                    user = udata["name"]
-                except:
-                    log_this("Error: missing 'name' field in user data file %s, in req.set_user()" % upath)
+                found_match = True
                 break
 
-        self.user.name = udata["name"]
-        self.user.admin = udata.get("admin", "False")
+        if found_match:
+            try:
+                self.user.name = udata["name"]
+            except KeyError:
+                log_this("Error: missing 'name' field in user data file %s, in req.set_user()" % upath)
+            self.user.admin = udata.get("admin", "False")
 
         dlog_this("in req.set_user: user=%s" % str(self.user.name))
 
@@ -486,6 +493,7 @@ def show_env(req, env, full=0):
 
 CGI_VARS=["CONTENT_TYPE", "CONTENT_LENGTH", "DOCUMENT_ROOT",
     "HTTP_COOKIE", "HTTP_HOST", "HTTP_REFERER", "HTTP_USER_AGENT",
+    "AUTH_TYPE", "HTTP_AUTHORIZATION",
     "HTTPS", "PATH", "QUERY_STRING", "REMOTE_ADDR",
     "REMOTE_HOST", "REMOTE_PORT", "REMOTE_USER", "REQUEST_METHOD",
     "REQUEST_URI", "SCRIPT_FILENAME", "SCRIPT_NAME", "SERVER_ADMIN",
@@ -511,8 +519,35 @@ def do_login_form(req):
   </td></tr><tr><td> </td><td align="right">
   <INPUT type="submit" name="login" value="Login"></input>
   </td></tr></table></FORM>""" % req.page_url)
-    req.html.append("""<br>Please contact &lt;%s&gt; if you want to create an account""" % req.config.admin_contact_str)
+    req.html.append("""<br>Please contact %s if you want to create an account""" % req.config.admin_contact_str)
     req.html.append("</td></tr></table>")
+
+def do_login(req):
+    # process user login
+    req.show_header("LabControl User login")
+    # process user login
+    name = req.form.getfirst("name", "")
+    password = req.form.getfirst("password")
+    #req.add_to_message("processing login form: name=%s<br>" % name)
+
+    # check user name and password
+    token, reason = authenticate_user(req, name, password)
+
+    # set cookie expiration (to about 1 week - in seconds)
+    # FIXTHIS - have authentication cookies last a configured amount of time
+    max_age = 604800
+    cookies = "auth_token=0;"
+
+    if token:
+        req.html.append('<H1 align="center">You successfully logged in!</H1><p>')
+        req.html.append('Click to return to <a href="%s">%s</a>' % \
+                (req.page_url, req.page_name))
+        cookies = "auth_token=%s; Max-Age=%s;" % (token, max_age)
+    else:
+        req.html.append(req.html_error("Invalid login: account or password did not match"))
+
+    # send cookies back to user
+    req.data.cookies = "Set-Cookie: %s" % cookies
 
 def do_user_edit_form(req):
     # show user edit form
@@ -533,9 +568,12 @@ def do_logout(req):
     # being logged in
     req.html.append('<h1 align="center">You have been logged out</h1>')
     req.html.append('Click here to return to <a href="%s/Main">Main</a>' % req.config.url_base)
+
+    cookies = "auth_token=0;"
+
+     # send cookies back to user
+    req.data.cookies = "Set-Cookie: %s" % cookies
     return
-
-
 
 def get_timestamp():
     t = time.time()
@@ -1341,6 +1379,10 @@ def get_api_object_data(req, obj_type, obj_name):
 # (that are assigned to me)
 def return_my_board_list(req):
     user = req.get_user()
+
+    if user == "not-logged-in":
+        req.send_api_response_msg(RSLT_FAIL, "You are not logged in.")
+        return
 
     boards = get_object_list(req, "board")
     my_boards =  []
@@ -2150,8 +2192,8 @@ def return_api_resource_action(req, resource, res_type, rest):
     req.send_api_response_msg(RSLT_FAIL, msg)
 
 # returns token, reason - where token is non-empty on success
-# as a side effect, this sets req.user
-def authenticate_user(req, user, password):
+# if set_req_user = True, then set req.user appropriately (on success)
+def authenticate_user(req, user, password, set_req_user=False):
     # scan user files for matching user
     user_dir = req.config.data_dir + "/users"
     try:
@@ -2195,6 +2237,9 @@ def authenticate_user(req, user, password):
             log_this("Authenticated user '%s'" % user)
             token = udata.get("auth_token", "")
             if token:
+                if set_req_user:
+                    req.user.name = user_name
+                    req.admin = udata.get("admin", "False")
                 return (token, "")
             else:
                 return (None, "Invalid token for user '%s' on server" % user)
