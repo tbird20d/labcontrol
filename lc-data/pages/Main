@@ -1,4 +1,5 @@
-<H1>Lab Control</H1>
+<H1 align="center">Lab Control</H1>
+<div align="right">%(login_link_nobr)s</div>
 
 This is the page for the Lab Control server for the
 <font color="red" size=5>%(lab_name)s</font> board farm.
@@ -12,7 +13,6 @@ operations, including running tests on them.
 Please select from the menu items shown below.
 <p>
 
-Or, you can login: %(login_form)s
 
 <HR>
 

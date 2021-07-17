@@ -1,4 +1,4 @@
-<h1>Test Page Data</h1>
+<h1 align="center">Test Page Data</h1>
 This page is here to test of interpolating page_data items
 into a page while rendering it for the LabControl server.
 <p>
@@ -16,11 +16,12 @@ Here is a link back to the <a href="%(url_base)s/Main">Main</a> page.
 <h2>python dynamic items</h2>
 <b>asctime</b>: %(asctime)s<br>
 <b>timestamp</b>: %(timestamp)s<br>
-<b>message<br>: %(message)s<br>
+<b>message</b>: %(message)s<br>
 <p>
 <h2>User information</h2>
 <b>user_name</b>: %(user_name)s<br>
-User admin flag:<b>user_admin</b>: %(user_admin)s<br>
+<b>user_admin</b>: %(user_admin)s<br>
+<p>
 
 <h2>external dynamic items</h2>
 <b>labcontrol git_commit</b>: %(git_commit)s<br>
@@ -32,6 +33,7 @@ logout, when the user is logged in.</i>
 <br>
 <b>login_link</b>: %(login_link)s<br>
 <b>login_link_nobr</b>: %(login_link_nobr)s<br>
+<b>logout_link</b>: %(logout_link)s<br>
 <b>search_form</b>: %(search_form)s<br>
 <b>search_form_nobr</b>: %(search_form_nobr)s<br>
 
