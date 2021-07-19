@@ -8,6 +8,7 @@ Here is a link back to the <a href="%(url_base)s/Main">Main</a> page.
 
 <h2>static items</h2>
 <b>url_base</b>: %(url_base)s<br>
+<b>files_url_base</b>: %(files_url_base)s<br>
 <b>page_url</b>: %(page_url)s<br>
 <b>page_name</b>: %(page_name)s<br>
 <b>version</b>: %(version)s<br>
@@ -22,6 +23,9 @@ Here is a link back to the <a href="%(url_base)s/Main">Main</a> page.
 <b>user_name</b>: %(user_name)s<br>
 <b>user_admin</b>: %(user_admin)s<br>
 <p>
+<h2>Config information</h2>
+<b>lab_name</b>: %(lab_name)s<br>
+<b>admin_contact_str</b>: %(admin_contact_str)s<br>
 
 <h2>external dynamic items</h2>
 <b>labcontrol git_commit</b>: %(git_commit)s<br>
