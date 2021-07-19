@@ -75,15 +75,17 @@ Configuring 'lc' to access the server
 To access the server using the lc command, you need to configure
 it with the address of the server.
 
-Put the following lines in the /etc/lc.conf
+If you are using the simple test http server included with labcontrol,
+put the following lines in the /etc/lc.conf
 
 ```
-server=localhost:8000
+server=http://localhost:8000/lcserver.py
 ```
 
-If using a remote labcontrol service, use one of the following configurations:
- * server={domain}/cgi-bin
- * server={domain}/labcontrol
+If using a labcontrol service running under a "real" web server,
+use a configuration like the following:
+
+ * server=https://mydomain.org/cgi-bin/lcserver.py
 
 depending on the URI path to the lcserver.py CGI script as it is
 installed in the remote web server.

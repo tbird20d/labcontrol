@@ -76,6 +76,9 @@ debug_api_response = False
 # uncomment this to dump response data to the log file
 #debug_api_response = True
 
+# global used to store messages about reading config
+config_msg = ""
+
 # Keep track of which getstatusoutput I'm using
 using_commands_gso = False
 try:
@@ -86,19 +89,65 @@ except:
 
 VERSION=(0,6,0)
 
-# precedence of installation locations:
-# 2. local lcserver in Fuego container
-# 3. test lcserver on Tim's private server machine (birdcloud.org)
-# 4. test lcserver on Tim's home desktop machine (timdesk)
-base_dir = "/home/ubuntu/work/labcontrol/lc-data"
-if not os.path.exists(base_dir):
-    base_dir = "/usr/local/lib/labcontrol/lc-data"
-if not os.path.exists(base_dir):
-    base_dir = "/home/tbird/work/labcontrol/lc-data"
+SERVER_CONF_FILENAME="/etc/lcserver.conf"
+
+# define a class for config vars
+class config_class:
+    def __init__(self):
+        global config_msg
+
+        # attempt to auto-detect several config values
+        if os.path.exists("/usr/lib/cgi-bin/lcserver.py"):
+            self.url_base = "/cgi-bin/lcserver.py"
+        else:
+            self.url_base = "/lcserver.py"
+
+        self.files_url_base = "/lc-data"
+        self.lab_name = "mylab"
+
+        self.admin_contact_str = "&lt;Please set the admin_contact_str in lcserver.conf&gt;"
+
+        # if not defined in lcserver.conf, try finding it
+        # precedence of installation locations:
+        # 2. local lcserver in Fuego container
+        # 3. test lcserver on Tim's private server machine (birdcloud.org)
+        # 4. test lcserver on Tim's home desktop machine (timdesk)
+        self.base_dir = "/home/ubuntu/work/labcontrol/lc-data"
+        if not os.path.exists(self.base_dir):
+            self.base_dir = "/usr/local/lib/labcontrol/lc-data"
+        if not os.path.exists(self.base_dir):
+            self.base_dir = "/home/tbird/work/labcontrol/lc-data"
+
+        # allow items in the server config file to override default
+        # or detected values
+        #config_msg = "reading config file...<br>\n"
+        if os.path.isfile(SERVER_CONF_FILENAME):
+            data = open(SERVER_CONF_FILENAME, "r").read()
+            for line in data.splitlines():
+                #config_msg += "config line='%s'<br>\n" % line
+                if not line.strip():
+                    continue
+                if line.startswith("#"):
+                    continue
+                if "=" in line:
+                    name, value = line.split("=",1)
+                    config_msg += "setting config %s='%s'<br>\n" % (name, value)
+                    self.__dict__[name] = value
+
+        self.data_dir = self.base_dir + "/data"
+        self.files_dir = self.base_dir + "/files"
+        self.page_dir = self.base_dir + "/pages"
+        config_msg += "config='%s'" % self.__dict__
+
+    def __getitem__(self, name):
+        return self.__dict__[name]
+
+# load the configuration data
+config = config_class()
 
 # if the file 'debug' exists in the lc-data directory, then
 # turn on the debug flag (for extra logging)
-if os.path.exists(base_dir + "/debug"):
+if os.path.exists(config.base_dir + "/debug"):
     debug = True
 
 RSLT_FAIL="fail"
@@ -106,40 +155,18 @@ RSLT_OK="success"
 
 # this is used for debugging only
 def log_this(msg):
-    with open(base_dir+"/lcserver.log" ,"a") as f:
+    global config
+
+    with open(config.base_dir+"/lcserver.log" ,"a") as f:
         f.write("[%s] %s\n" % (get_timestamp(), msg))
 
 def dlog_this(msg):
     global debug
+    global config
 
     if debug:
-        with open(base_dir+"/lcserver.log" ,"a") as f:
+        with open(config.base_dir+"/lcserver.log" ,"a") as f:
             f.write("[%s] %s\n" % (get_timestamp(), msg))
-
-# define an instance to hold config vars
-class config_class:
-    def __init__(self):
-        pass
-
-    def __getitem__(self, name):
-        return self.__dict__[name]
-
-config = config_class()
-config.data_dir = base_dir + "/data"
-
-# these need to be customized per installation
-config.lab_name = "timslab"
-config.admin_contact_str = "&lt;tbird20d (at) yahoo (dot) com&gt;"
-
-# crude attempt at auto-detecting url_base
-if os.path.exists("/usr/lib/cgi-bin/lcserver.py"):
-    config.url_base = "/cgi-bin/lcserver.py"
-else:
-    config.url_base = "/lcserver.py"
-
-config.files_url_base = "/lc-data"
-config.files_dir = base_dir + "/files"
-config.page_dir = base_dir + "/pages"
 
 # this class has data that can be included on a page
 # using %(varname)s.  This includes things like login forms,
@@ -202,6 +229,9 @@ class page_data_class:
     def url_base(self):
         return self.req.config.url_base
 
+    def files_url_base(self):
+        return self.req.config.files_url_base
+
     def page_url(self):
         return self.req.page_url
 
@@ -219,12 +249,12 @@ class page_data_class:
 
     def git_commit(self):
         cmd = 'git log -n 1 --format="%h"'
-        html = self.external_info(cmd, base_dir)
+        html = self.external_info(cmd, config.base_dir)
         return '#' + html.strip()
 
     def git_describe(self):
         cmd = 'git describe'
-        html = self.external_info(cmd, base_dir)
+        html = self.external_info(cmd, config.base_dir)
         return html
 
     def user_name(self):
@@ -235,6 +265,9 @@ class page_data_class:
 
     def lab_name(self):
         return str(self.req.config.lab_name)
+
+    def admin_contact_str(self):
+        return str(self.req.config.admin_contact_str)
 
     # support edit action on a double-click on the page
     # FIXTHIS - the 'edit' action for a page is not currently supported
@@ -2459,9 +2492,14 @@ def do_api(req):
         return
 
 def handle_request(environ, req):
+    global debug
+    global config_msg
+
     req.environ = environ
 
     dlog_this("in handle_request: debug flag is set")
+    # uncomment this to debug configuration issues
+    #dlog_this("config_msg=%s" % config_msg)
 
     # look up user, for those that pass an authorization token
     req.set_user()
