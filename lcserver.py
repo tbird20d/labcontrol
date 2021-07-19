@@ -1285,9 +1285,11 @@ def do_show(req):
         # check for object name here, and show individual object
         #   status and control interface
         if req.obj_type in ["board"]:
+            req.show_header("Lab Control %s" % req.obj_type)
             # show individual object
             show_object(req, req.obj_type, req.page_name)
         else:
+            req.show_header("Lab Control")
             title = "Error - unsupported object type '%s'" % req.obj_type
             req.add_to_message(title)
 
