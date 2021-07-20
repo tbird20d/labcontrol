@@ -1,0 +1,35 @@
+To use labcontrol with Apache2, you have to do a bit of setup.
+
+You need to:
+ - install Apache and make sure it's running
+ - install the lcserver.py script in a location where Apache can run it
+ - configure the url_base and files_url_base in your /etc/lcserver.conf file
+ - make sure that Apache passes authorization information
+   (so user can log in via lc)
+
+I got a lot of great info from:
+ - Enabling Apache2 on Ubuntu 20.04:
+   - https://www.digitalocean.com/community/tutorials/how-to-install-the-apache-web-server-on-ubuntu-20-04
+and
+ - Enabling cgi scripts on Apache 2:
+   - https://www.server-world.info/en/note?os=Ubuntu_20.04&p=httpd&f=5
+
+
+Here's how I configured things:
+ - cp /home/tbird/work/labcontrol/lcserver.conf /etc/lcserver.conf
+   - edit to customize for your lab
+     - lab_name, admin_contact_str, and base_url
+
+ - $ sudo ln -s /home/tbird/work/labcontrol/lcserver.py /usr/lib/cgi-bin/lcserver.py
+ - $ a2enmod cgid
+   - this enables /etc/apache2/conf-enabled/serve-cgi-bin.conf
+
+ - $ sudo ln -s /home/tbird/work/labcontrol/lc-data /var/www/html/lc-data
+   - this makes the direct-files link for serving raw json files
+
+ - $ vi /etc/apache2/conf-enabled/serve-cgi-bin.conf
+   - add the following line in the section <Directory "/usr/bin/cgi-bin">
+      CGIPassAuth On
+
+ - $ systemctl reload apache
+   - reload the configuration
