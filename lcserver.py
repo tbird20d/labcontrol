@@ -1629,6 +1629,8 @@ def get_api_object_map(req, obj_type, obj_name):
     return obj_map
 
 def save_object_data(req, obj_type, obj_name, obj_data):
+    msg = ""
+
     filename = obj_type + "-" + obj_name + ".json"
     file_path = "%s/%ss/%s-%s.json" %  (req.config.data_dir, obj_type, obj_type, obj_name)
 
@@ -1642,9 +1644,10 @@ def save_object_data(req, obj_type, obj_name, obj_data):
         ofd.write(json_data)
         ofd.close()
     except:
-        log_this("Error: cannot write data to file %s" % file_path)
+        msg = "Error: cannot write data to file %s" % file_path
+        log_this(msg)
 
-    return
+    return msg
 
 def get_connected_resource(req, board_map, resource_type):
     # look up connected resource type in board map
@@ -1791,7 +1794,11 @@ def do_board_assign(req, board, board_map, rest):
         return
 
     # save data back to json file
-    save_object_data(req, "board", board, board_map)
+    msg = save_object_data(req, "board", board, board_map)
+
+    if msg:
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
 
     req.send_api_response(RSLT_OK)
     return
@@ -1823,7 +1830,11 @@ def do_board_release(req, board, board_map, rest):
     board_map["AssignedTo"] = "nobody"
 
     # save data back to json file
-    save_object_data(req, "board", board, board_map)
+    msg = save_object_data(req, "board", board, board_map)
+
+    if msg:
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
 
     req.send_api_response(RSLT_OK)
     return
@@ -2106,6 +2117,8 @@ def run_command(cmd):
 
 # returns non-empty reason string on failure
 def set_config(req, action, resource_map, config_map, rest):
+    msg = ""
+
     resource = resource_map["name"]
     config_cmd = resource_map.get("config_cmd", "")
     if not config_cmd:
@@ -2138,7 +2151,7 @@ def set_config(req, action, resource_map, config_map, rest):
         return msg
 
     # write out updated resource_map
-    save_object_data(req, "resource", resource, new_resource_map)
+    msg = save_object_data(req, "resource", resource, new_resource_map)
 
     return None
 
