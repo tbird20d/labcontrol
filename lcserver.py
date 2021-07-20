@@ -459,18 +459,20 @@ class req_class:
         # There are two ways to set the token, one via the AUTH_TYPE and
         # HTTP_AUTHORIZATION, and the other via HTTP_COOKIE
         # either is valid
-        AUTH_TYPE = self.environ.get("AUTH_TYPE", "none")
-        http_auth = self.environ.get("HTTP_AUTHORIZATION", "nobody")
+        http_auth = self.environ.get("HTTP_AUTHORIZATION", "")
         HTTP_COOKIE = self.environ.get("HTTP_COOKIE", "")
 
         cookie_token = ""
         auth_token = ""
+        auth_type = ""
         if "auth_token=" in HTTP_COOKIE:
             cookie_token = HTTP_COOKIE.split("auth_token=")[1]
             if ";" in cookie_token:
                 cookie_token = cookie_token.split(";")[0]
-        if AUTH_TYPE == "token" and http_auth != 'nobody':
-            auth_token = http_auth.split()[1]
+        if http_auth:
+            auth_type, auth_token = http_auth.split(" ", 1)
+            if auth_type != "token":
+                auth_token=""
 
         # scan user files for matching authentication token
 
@@ -2608,9 +2610,12 @@ def cgi_main():
         log_this("LabControl Server Error")
         log_this("traceback=%s" % tb_msg)
 
+
     # output html to stdout
     for line in req.html:
         print(line)
+        if debug_api_response:
+            dlog_this(line)
 
     sys.stdout.flush()
 
