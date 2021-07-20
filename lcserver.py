@@ -239,6 +239,13 @@ class page_data_class:
     def page_name(self):
         return self.req.page_name
 
+    def admin_page_link(self):
+        if self.req.user.admin:
+            return 'Click to go to the <a href="%s">Admin</a> page' % \
+                    self.req.make_url("Admin")
+        else:
+            return ""
+
     def asctime(self):
         return time.asctime()
 
@@ -662,6 +669,8 @@ characters: _ - . @<i>
                 <INPUT type="submit" name="createuser" value="Create User"></input>
   </td></tr></table></FORM>""" % req.page_url)
     req.html.append("</td></tr></table>")
+    req.html.append('<p>Click to return to <a href="%s/Admin">Admin</a> page.' %
+                         (req.page_url))
 
 def do_create_user(req):
     req.show_header("LabControl Create User")

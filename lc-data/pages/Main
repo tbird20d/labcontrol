@@ -10,10 +10,13 @@ and resources in the lab, and control them to perform
 operations, including running tests on them.
 <p>
 
-Please select from the menu items shown below.
-<p>
-
-
 <HR>
 
 Here is a test page: <a href="%(url_base)s/Test_Page_Data">Test_Page_Data</a>
+<p>
+%(admin_page_link)s
+<p>
+<hr>
+Please select from the menu items shown below.
+<p>
+
