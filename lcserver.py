@@ -54,6 +54,7 @@ import cgi
 import re
 import tempfile
 import urllib
+import uuid
 
 # simplejson loads faster than json, use that if available
 try:
@@ -635,6 +636,130 @@ def do_logout(req):
     req.show_header("LabControl User Account logout")
     req.html.append(html)
     return
+
+def do_create_user_form(req):
+    # show create user login form
+    req.show_header("Create LabControl User Account")
+    req.html.append("""Please enter the data for the new user.
+<p><i>Note: Names may only include letters, numbers, and the following
+characters: _ - . @<i>
+<p>
+""")
+
+    req.html.append("""<FORM METHOD="POST" ACTION="%s?action=create_user">
+<table id=createuserform><tr><td>
+  Name:</td><td align="right"><INPUT type="text" name="name" width=15></input></td></tr>
+  <tr><td>Password:</td><td align="right">
+          <INPUT type="password" name="password" width=15></input>
+  </td></tr>
+  <tr><td>Password (repeat):</td><td align="right">
+          <INPUT type="password" name="password2" width=15></input>
+  </td></tr>
+  <tr><td>Is Admin?</td><td align="right">
+                <INPUT type="checkbox" name="admin" value="True"></input>
+  </td></tr>
+  <tr><td> </td><td align="right">
+                <INPUT type="submit" name="createuser" value="Create User"></input>
+  </td></tr></table></FORM>""" % req.page_url)
+    req.html.append("</td></tr></table>")
+
+def do_create_user(req):
+    req.show_header("LabControl Create User")
+
+    err_close_msg = "<p>Could not create user.\n<p>" + \
+                    'Click to return to <a href="%s">%s</a>' % \
+                         (req.page_url, req.page_name)
+
+    # process create user action
+    name = req.form.getfirst("name", "")
+    password = req.form.getfirst("password", "bad")
+    password2 = req.form.getfirst("password2", "bad2")
+    admin = req.form.getfirst("admin", "False")
+    req.add_to_message("processing create user form: name=%s<br>" % name)
+    dlog_this("name=%s" % name)
+    dlog_this("admin=%s" % admin)
+
+    # check user name and password
+    # see if user name has weird chars
+    still_ok = True
+    allowed_re_pat = "^[\w_.@-]+$"
+    if not re.match(allowed_re_pat, name):
+        msg = "Error: user name '%s' has disallowed chars.  Only letters, numbers and _, -, . and @ are allowed." % name
+        log_this(msg)
+        req.html.append(req.html_error(req.html_escape(msg)))
+        req.html.append(err_close_msg)
+        return
+
+    # make sure user doesn't already exist
+    user_dir = req.config.data_dir + "/users"
+    try:
+        user_files = os.listdir( user_dir )
+    except:
+        msg = "Error: could not read user files from " + user_dir
+        log_this(msg)
+        req.html.append(req.html_error(req.html_escape(msg)))
+        req.html.append(err_close_msg)
+        return
+
+    for ufile in user_files:
+        if not ufile.startswith("user-"):
+            continue
+        # strip "user-" and ".json"
+        existing_name = ufile[5:-5]
+        if name == existing_name:
+            msg = "Error: user account '%s' already exists." % name
+            log_this(msg)
+            req.html.append(req.html_error(req.html_escape(msg)))
+            req.html.append(err_close_msg)
+            return
+
+    # make sure that passwords match
+    if password != password2:
+        msg = "Error: passwords do not match!"
+        log_this(msg)
+        req.html.append(req.html_error(msg))
+        req.html.append(err_close_msg)
+        return
+
+    # process admin flag
+    req.add_to_message("admin=%s" % admin)
+    log_this("admin=%s" % admin)
+    if admin == "True":
+        admin_field_str = ',\n    "admin": "True"'
+    else:
+        admin_field_str = "\n"
+
+    # everything looks OK, create a token and save the data
+    auth_token = str(uuid.uuid4())
+
+    filepath = user_dir + "/user-" + name + ".json"
+
+    # sanitize the password
+    # escape any double-quotes in the password (for putting into a json string)
+    if '"' in password:
+        password = password.replace('"', '\\"')
+
+    try:
+        with open(filepath, "w") as fd:
+            fd.write("""{
+    "name": "%s",
+    "password": "%s",
+    "auth_token": "%s"%s
+}
+""" % (name, password, auth_token, admin_field_str))
+    except IOError:
+        msg = "Error: passwords do not match!"
+        log_this(msg)
+        req.html.append(req.html_error(msg))
+        req.html.append(err_close_msg)
+        return
+
+
+    req.html.append('You successfully created user account: %s\n<p>\n' % name)
+    req.html.append('Click to return to <a href="%s">%s</a>' % \
+            (req.page_url, req.page_name))
+    return
+
 
 def get_timestamp():
     t = time.time()
@@ -2569,7 +2694,8 @@ def handle_request(environ, req):
             "remove_board", "remove_resource", "remove_request",
             "update_board", "update_resource", "update_request",
             "put_log", "get_log",
-            "login_form", "login", "user_editform", "logout"]
+            "login_form", "login", "user_editform", "logout",
+            "create_user_form", "create_user"]
 
     # map action names to "do_<action>" functions
     if action in action_list:
