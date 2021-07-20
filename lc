@@ -132,7 +132,7 @@ command_help = {
 """),
 
 "release": ("Release a board reservation.",
-    """Usage: lc {board} release
+    """Usage: lc {board} release [force]
   Release a board that was reserved for my use.
 
   Options:
@@ -284,15 +284,6 @@ If -f is specified, then the reservation is 'forced' and any
 current reservation is overridden with the new one.
 
    ex: lc beablebone reserve"""),
-
-"release": ("Release a reservation on a board or resource.",
-    """Usage: lc [board] release
-
-Release the named board or resource.
-A message and the exit code indicate if the resource was released.
-
-   ex: lc beaglebone release"""),
-
 }
 
 # here's a helper routine to print a variable with it's name and value
