@@ -2041,8 +2041,16 @@ def do_board_run(req, board, board_map, rest):
     # This seems optimistic - maybe add some error handling here
     run_data = req.form.value
     dlog_this("run_data=%s" % run_data)
-    command_to_run = json.loads(run_data)["command"]
+    try:
+        command_to_run = json.loads(run_data).get("command", "")
+    except TypeError:
+        command_to_run = req.form.getfirst("command", "")
+
     dlog_this("command_to_run=%s" % command_to_run)
+    if not command_to_run:
+        msg = "Cannot parse 'command' from form data (or it was empty)"
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
 
     cmd_str = board_map.get("run_cmd", None)
 
