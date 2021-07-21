@@ -1284,6 +1284,8 @@ def show_board_info(req, bmap):
 def show_object(req, obj_type, obj_name):
     if obj_type == "board":
         show_board(req, obj_name)
+    elif obj_type == "resource":
+        show_resource(req, obj_name)
     else:
         title = "Error - object type '%s'" % req.obj_type
         req.add_to_message(title)
@@ -1321,18 +1323,15 @@ def show_boards(req):
     boards = get_object_list(req, "board")
 
     # show a table of attributes
-    req.html.append('<table class="board_table" border="1" style="border-collapse: collapse; padding: 5px" >\n<tr>\n')
-    req.html.append("  <th>Name</th><th>Description</th><th>Data and Actions</th>\n</tr>\n")
+    req.html.append('<table class="boards_table" border="1" style="border-collapse: collapse; padding: 5px" >\n<tr>\n')
+    req.html.append("  <th>Name</th><th>Description</th>\n</tr>\n")
     for board in boards:
         req.html.append("<tr>\n")
         bmap = get_object_map(req, "board", board)
-        bmap["board_link"] = req.config.url_base + "/boards/" + board
+        board_link = req.config.url_base + "/boards/" + board
 
-        req.html.append('  <td valign="top" align="center" style="padding: 5px"><h3><a href="%(board_link)s">%(name)s</a></h3>(in %(host)s)</td>\n' % bmap)
+        req.html.append('  <td valign="top" align="center" style="padding: 5px"><b><a href="%s">%s</a></b></td>\n' % (board_link, board))
         req.html.append('  <td valign="top" style="padding: 5px">%(description)s</td>\n' % bmap)
-        req.html.append('  <td style="padding: 10px">')
-        show_board_info(req, bmap)
-        req.html.append("</td>\n")
         req.html.append("</tr>\n")
 
     req.html.append("</table>")
@@ -1418,6 +1417,64 @@ def show_board(req, board):
 
     req.show_footer()
 
+def show_resources(req):
+    req.html.append("<H1>Resources</h1>")
+    resources = get_object_list(req, "resource")
+
+    # show a table of attributes
+    req.html.append('<table class="resources_table" border="1" style="border-collapse: collapse; padding: 5px" >\n<tr>\n')
+    req.html.append("  <th>Name</th><th>Description</th>\n</tr>\n")
+    for resource in resources:
+        req.html.append("<tr>\n")
+        rmap = get_object_map(req, "resource", resource)
+        res_link = req.config.url_base + "/resources/" + resource
+
+        req.html.append('  <td valign="top" align="center" style="padding: 5px"><b><a href="%s">%s</a></b></td>\n' % (res_link, resource))
+        description = rmap.get("description",
+                req.html_error("No description available"))
+        req.html.append('  <td valign="top" style="padding: 5px">%s</td>\n' % description)
+        req.html.append("</tr>\n")
+
+    req.html.append("</table>")
+    req.show_footer()
+
+def show_resource(req, resource):
+    req.html.append("<H1>Resource %s</h1>" % resource)
+    rmap = get_object_map(req, "resource", resource)
+
+    req.html.append('<table class="resource_table" border="1" style="border-collapse: collapse; padding: 5px" >\n<tr>\n')
+    req.html.append('  <td style="padding: 10px">')
+
+    # show attributes here
+    # split them into two sets: attributes and commands
+    rattr_keys = []
+    rcmd_keys = []
+    for key in rmap.keys():
+        if key.endswith("_cmd"):
+            rcmd_keys.append(key)
+        else:
+            rattr_keys.append(key)
+
+    dlog_this("rattr_keys=%s" % str(rattr_keys))
+
+    rattr_keys.sort()
+    req.html.append("<h3>Attributes</h3>")
+    req.html.append("<ul>")
+    for name in rattr_keys:
+        req.html.append("<li><b>%s</b>: %s</li>" % (name, rmap[name]))
+    req.html.append("</ul>")
+
+    rcmd_keys.sort()
+    req.html.append("<h3>Commands</h3>")
+    req.html.append("<ul>")
+    for name in rcmd_keys:
+        req.html.append("<li><b>%s</b>: %s</li>" % (name, rmap[name]))
+    req.html.append("</ul>")
+
+    req.html.append("</td></tr></table>\n")
+
+    req.show_footer()
+
 def show_users(req):
     req.html.append("<H1>Users</h1>")
     users = get_object_list(req, "user")
@@ -1454,8 +1511,7 @@ def do_show(req):
         show_users(req)
         handled = True
     if page_name == "resources":
-        req.html.append("<H1>List of resources</h1>")
-        req.html.append(file_list_html(req, "data", "resources", ".json"))
+        show_resources(req)
         handled = True
     if page_name == "requests":
         req.html.append("<H1>Table of requests</H1>")
@@ -1478,7 +1534,7 @@ def do_show(req):
     if not handled:
         # check for object name here, and show individual object
         #   status and control interface
-        if req.obj_type in ["board"]:
+        if req.obj_type in ["board", "resource"]:
             req.show_header("Lab Control %s" % req.obj_type)
             # show individual object
             show_object(req, req.obj_type, req.page_name)
