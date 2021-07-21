@@ -5,7 +5,7 @@ You need to:
  - install the lcserver.py script in a location where Apache can run it
  - configure the url_base and files_url_base in your /etc/lcserver.conf file
  - make sure that Apache passes authorization information
-   (so user can log in via lc)
+   (so users can log in via lc)
 
 I got a lot of great info from:
  - Enabling Apache2 on Ubuntu 20.04:
@@ -21,15 +21,31 @@ Here's how I configured things:
      - lab_name, admin_contact_str, and base_url
 
  - $ sudo ln -s /home/tbird/work/labcontrol/lcserver.py /usr/lib/cgi-bin/lcserver.py
+   - this creates the link for lcserver.py so apache can run it
+ - $ sudo chown -h tbird.tbird /usr/lib/cgi-bin/lcserver.py
+   - this sets the file ownership of the symlink.  With the default Apache2
+     configuration, the ownership of the link must match the ownership of
+     the file, in order for apache to execute it.  Use the appropriate
+     user and group for your situation (whatever user and group you
+     used when you installed labcontrol)
+
  - $ a2enmod cgid
    - this enables /etc/apache2/conf-enabled/serve-cgi-bin.conf
 
  - $ sudo ln -s /home/tbird/work/labcontrol/lc-data /var/www/html/lc-data
    - this makes the direct-files link for serving raw json files
 
- - $ vi /etc/apache2/conf-enabled/serve-cgi-bin.conf
+ - $ sudo chgrp -R www-data /home/tbird/work/labcontrol/lc-data
+ - $ sudo chmod -R g+rw /home/tbird/work/labcontrol/lc-data
+   - make all labcontrol data files are accessible by the web server.  By
+     default the web server runs as user www-data and group www-data, which
+     is what the CGI script (lcserver.py) will run as, as well.
+     Set the group on the data files so the script can access and modify
+     the files.
+
+ - $ sudo vi /etc/apache2/conf-enabled/serve-cgi-bin.conf
    - add the following line in the section <Directory "/usr/bin/cgi-bin">
       CGIPassAuth On
 
- - $ systemctl reload apache
+ - $ sudo systemctl reload apache2
    - reload the configuration
