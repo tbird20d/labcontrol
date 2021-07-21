@@ -1245,19 +1245,19 @@ def show_board_info(req, bmap):
     if pc:
         reboot_link = req.config.url_base + "/api/v0.2/devices/%s/power/reboot" % (bmap["name"])
         req.html.append("""
-<form method="get" action=%s>
+<form method="get" action="%s">
 <input type="submit" name="button" value="Reboot">
 </form>
 """ % reboot_link)
         on_link = req.config.url_base + "/api/v0.2/devices/%s/power/on" % (bmap["name"])
         req.html.append("""
-<form method="get" action=%s>
+<form method="get" action="%s">
 <input type="submit" name="button" value="ON">
 </form>
 """ % on_link)
         off_link = req.config.url_base + "/api/v0.2/devices/%s/power/off" % (bmap["name"])
         req.html.append("""
-<form method="get" action=%s>
+<form method="get" action="%s">
 <input type="submit" name="button" value="OFF">
 </form>
 """ % off_link)
@@ -1266,14 +1266,14 @@ def show_board_info(req, bmap):
     if cm:
         image_link = req.config.url_base + "/api/v0.2/devices/%s/camera/image" % (bmap["name"])
         req.html.append("""
-<form method = "get" action=%s>
+<form method="get" action="%s">
 <input type="submit" name="button" value="Capture Image">
 </form>
 """ % image_link)
 
         video_link = req.config.url_base + "/api/v0.2/devices/%s/camera/video" % (bmap["name"])
         req.html.append("""
-<form method = "get" action=%s>
+<form method="get" action="%s">
 <input type="submit" name="button" value="Capture Video">
 </form>
 """ % image_link)
