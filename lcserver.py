@@ -1211,9 +1211,13 @@ def show_board_info(req, bmap):
     # list of connected resources
     req.html.append("<h3>Resources</h3>\n<ul>")
     pc = bmap.get("power_controller", "")
+    cm = bmap.get("camera", "")
     resource_shown = False
     if pc:
         req.html.append("<li>Power controller: %s</li>\n" % pc)
+        resource_shown = True
+    if cm:
+        req.html.append("<li>Camera module: %s</li>\n" % cm)
         resource_shown = True
     if not resource_shown:
         req.html.append("<li><i>No connected resources found!</i></li>\n")
@@ -1257,7 +1261,25 @@ def show_board_info(req, bmap):
 <input type="submit" name="button" value="OFF">
 </form>
 """ % off_link)
+
+    # show the camera action links
+    if cm:
+        image_link = req.config.url_base + "/api/v0.2/devices/%s/camera/image" % (bmap["name"])
+        req.html.append("""
+<form method = "get" action=%s>
+<input type="submit" name="button" value="Capture Image">
+</form>
+""" % image_link)
+
+        video_link = req.config.url_base + "/api/v0.2/devices/%s/camera/video" % (bmap["name"])
+        req.html.append("""
+<form method = "get" action=%s>
+<input type="submit" name="button" value="Capture Video">
+</form>
+""" % image_link)
+
     req.html.append("</ul>")
+
 
 def show_object(req, obj_type, obj_name):
     if obj_type == "board":
@@ -1740,6 +1762,37 @@ def do_board_get_resource(req, board, board_map, rest):
     req.send_api_response(RSLT_OK, { "data": resource })
     return
 
+def do_camera_operation(req, board, board_map, rest):
+    cam_map = get_connected_resource(req, board_map, "camera")
+    if not cam_map:
+        msg = "No camera resource found for board %s" % board
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    try:
+        action = rest[0]
+    except IndexError:
+        action = "status"
+
+    if action == "image":
+        filename = "%s-%s-image.jpeg" % (board, get_timestamp())
+        filepath = req.config.files_dir + "/" + filename
+        d = copy.deepcopy(cam_map)
+        d["output"] = filepath
+
+        return_exec_command(req, board_map, d, action)
+    elif action == "video":
+        filename = "%s-%s-video.mp4" % (board, get_timestamp())
+        filepath = req.config.files_dir + "/" + filename
+        d = copy.deepcopy(cam_map)
+        d["output"] = filepath
+
+        return_exec_command(req, board_map, cam_map, action)
+    else:
+        msg = "camera action '%s' not supported" % action
+        req.send_api_resopnse_msg(RSLT_FAIL, msg)
+        return
+
 def do_board_power_operation(req, board, board_map, rest):
     pdu_map = get_connected_resource(req, board_map, "power_controller")
     if not pdu_map:
@@ -2021,6 +2074,10 @@ def return_api_board_action(req, board, action, rest):
 
     elif action == "upload":
         do_board_upload(req, board, board_map, rest)
+        return
+
+    elif action == "camera":
+        do_camera_operation(req, board, board_map, rest)
         return
 
     msg = "action '%s' not supported (rest='%s')" % (action, rest)
