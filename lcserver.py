@@ -1774,7 +1774,7 @@ def do_board_get_resource(req, board, board_map, rest):
     res_type = rest[0]
     del(rest[0])
     if res_type not in ["power-controller", "power-measurement", "serial",
-            "canbus"]:
+            "canbus", "camera"]:
         msg = "Error: invalid resource type '%s'" % res_type
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
