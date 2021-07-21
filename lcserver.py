@@ -1339,8 +1339,6 @@ def show_boards(req):
     req.show_footer()
 
 def show_board(req, board):
-    # figure out which board we're showing
-
     req.html.append("<H1>Board %s</h1>" % board)
     bmap = get_object_map(req, "board", board)
 
@@ -1377,6 +1375,44 @@ def show_board(req, board):
     <INPUT type="hidden" name="username" value="*"></input>
     <INPUT type="submit" name="submit_button" value="Run"></input>
     </FORM>""" % url)
+
+    # show last image taken by camera, if there is one
+
+    image_filename = "%s-last-camera-image.jpeg" % board
+    image_path = req.config.files_dir + "/" + image_filename
+    # note: link contents (target) is just the filename
+    have_image_file = False
+    if os.path.islink(image_path):
+        target = os.readlink(image_path)
+        if os.path.isfile(req.config.files_dir + "/" + target):
+            have_image_file = True
+
+    video_filename = "/%s-last-camera-video.jpeg" % board
+    video_path = req.config.files_dir + video_filename
+    # note: link contents (target) is just the filename
+    have_video_file = False
+    if os.path.islink(video_path):
+        target = os.readlink(video_path)
+        if os.path.isfile(req.config.files_dir + "/" + target):
+            have_video_file = True
+
+    if have_image_file or have_video_file:
+        req.html.append('</td><td style="padding: 5px" align=top>\n')
+        if have_image_file:
+            image_link = req.config.files_url_base + "/files/" + image_filename
+            req.html.append("""
+<h2 align="center">Last Camera Image</h2>
+<image src="%s" height="600" width="400">
+<p>
+""" % image_link)
+
+        if have_video_file:
+            video_link = req.config.files_url_base + "/files/" + video_filename
+
+            req.html.append("""
+<h2 align="center">Last Camera Video</h2>
+<image src="%s" height="600" width="400">
+""" % video_link)
 
     req.html.append("</td></tr></table>\n")
 
@@ -1780,14 +1816,58 @@ def do_camera_operation(req, board, board_map, rest):
         d = copy.deepcopy(cam_map)
         d["output"] = filepath
 
-        return_exec_command(req, board_map, d, action)
+        (result, msg) = exec_command(req, board_map, d, action)
+        if result == RSLT_FAIL:
+            req.send_api_response_msg(result, msg)
+            return
+
+        # have message include link to image
+        # FIXTHIS - this returns a relative URL path, not a full path
+        file_link = req.config.files_url_base + "/files/" + filename
+        msg = 'File is available at: <a href="%s">%s</a>' % (file_link, file_link)
+        # create symlink lc-data/files/{board}-last-camera-image.jpeg
+        sympath = req.config.files_dir + "/%s-last-camera-image.jpeg" % board
+        dlog_this("making symlink: filename=%s, sympath=%s" % (filename, sympath))
+
+        try:
+            os.unlink(sympath)
+        except OSError:
+            pass
+
+        try:
+            os.symlink(filename, sympath)
+        except OSError:
+            log_this("Problem creating symlink %s -> %s" % (sympath, filename))
+
+        req.send_api_response_msg(result, msg)
     elif action == "video":
         filename = "%s-%s-video.mp4" % (board, get_timestamp())
         filepath = req.config.files_dir + "/" + filename
         d = copy.deepcopy(cam_map)
         d["output"] = filepath
 
-        return_exec_command(req, board_map, cam_map, action)
+        (result, msg) = exec_command(req, board_map, d, action)
+        if result == RSLT_FAIL:
+            req.send_api_response_msg(result, msg)
+            return
+
+        # have message include link to video
+        file_link = req.config.files_url_base + "/files/" + filename
+        msg = 'File is available at: <a href="%s">%s</a>' % (file_link, file_link)
+        # create symlink lc-data/files/{board}-last-camera-video.jpeg
+        sympath = req.config.files_dir + "/%s-last-camera-video.jpeg" % board
+        dlog_this("making symlink: filename=%s, sympath=%s" % (filename, sympath))
+        try:
+            os.unlink(sympath)
+        except OSError:
+            pass
+
+        try:
+            os.symlink(filename, sympath)
+        except OSError:
+            log_this("Problem creating symlink %s -> %s" % (sympath, filename))
+
+        req.send_api_response_msg(result, msg)
     else:
         msg = "camera action '%s' not supported" % action
         req.send_api_resopnse_msg(RSLT_FAIL, msg)
