@@ -897,12 +897,10 @@ def do_upload(conf, options):
         error_out("Could not do upload: %s" % reason)
 
     # command was performed, result was "success"
-    return_code = resp_data["data"]["return_code"]
-    output = resp_data["data"]["data"]
-    for line in output:
-        sys.stdout.write(line)
+    msg = resp_data["message"]
+    print(msg)
 
-    sys.exit(return_code)
+    sys.exit(0)
 
 def do_reserve(conf, options, cmd='reserve'):
     # board is a required first argument

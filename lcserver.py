@@ -2166,23 +2166,19 @@ def do_board_upload(req, board, bmap, rest):
 
     log_this("executing upload command: %s" % cmd_str)
     rcode, output = getstatusoutput(cmd_str)
+
+    # clean up temporary files
+    os.remove(staged_path)
+    os.rmdir(tmpdir)
+
     if rcode:
         msg = "Result of upload operation on board %s = %d\n" % (board, rcode)
         msg += "command output='%s'" % output
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
-    # clean up temporary files
-    os.remove(staged_path)
-    os.rmdir(tmpdir)
-
-    # FIXTHIS - what should data result be for file upload?
-    lines = output.splitlines()
-    data = { "return_code": rcode, "data": lines }
-    jdata = json.dumps(data)
-    dlog_this("jdata='%s'" % jdata)
-
-    req.send_api_response(RSLT_OK, { "data": data } )
+    msg = "%s uploaded" % filename
+    req.send_api_response_msg(RSLT_OK, msg)
     return
 
 
