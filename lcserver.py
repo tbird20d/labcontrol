@@ -1307,15 +1307,15 @@ def get_power_status(req, bmap):
     cmd_str = pdu_map["status_cmd"]
     cmd_str = get_interpolated_str(cmd_str, bmap, pdu_map)
 
-    rcode, status = getstatusoutput(cmd_str)
+    rcode, output = getstatusoutput(cmd_str)
     if rcode:
         msg = "Result of power status operation on board %s = %d\n" % (bmap["name"], rcode)
-        msg += "command output='%s'" % status
+        msg += "command output='%s'" % output
         return (RSLT_FAIL, msg)
 
-    # FIXTHIS - translate result here, if needed
+    # FIXTHIS - translate power status output here, if needed
 
-    return (RSLT_OK, status)
+    return (RSLT_OK, output)
 
 # show the web ui for boards on this machine
 def show_boards(req):
@@ -1354,14 +1354,14 @@ def show_board(req, board):
         run_map = { "command": "uptime" }
 
         cmd_str = get_interpolated_str(cmd_str, bmap, run_map)
-        lines, rcode, msg = run_command(cmd_str)
+        rcode, output = getstatusoutput(cmd_str)
     else:
-        lines = ["<i>Board does not have a 'run_cmd' specified</i>"]
+        output = "<i>Board does not have a 'run_cmd' specified</i>"
         rcode = 0
 
     if rcode:
-        lines = ["<i>problem getting uptime</i>"]
-    req.html.append("<b>Uptime:</b> %s<BR>" % lines[0])
+        output = "<i>problem getting uptime</i>"
+    req.html.append("<b>Uptime:</b> %s<BR>" % output.strip())
 
     # show a form to execute a command on the board
     req.html.append("<p>")
@@ -1812,13 +1812,13 @@ def exec_command(req, board_map, resource_map, res_cmd):
 
     cmd_str = get_interpolated_str(cmd_str, board_map, resource_map)
 
-    rcode, result = getstatusoutput(cmd_str)
+    rcode, output = getstatusoutput(cmd_str)
     if rcode:
         msg = "Result of %s operation on resource %s = %d" % (res_cmd, resource_map["name"], rcode)
-        msg += "command output='%s'" % result
+        msg += "command output='%s'" % output
         return (RSLT_FAIL, msg)
 
-    return (RSLT_OK, result)
+    return (RSLT_OK, output)
 
 # execute a resource command
 def return_exec_command(req, board_map, resource_map, res_cmd):
@@ -2064,11 +2064,14 @@ def do_board_run(req, board, board_map, rest):
 
     log_this("About to run_command '%s' on board %s" % (cmd_str, board_map["name"]))
 
-    lines, rcode, msg = run_command(cmd_str)
+    rcode, output, msg = run_command(req, cmd_str)
     if msg:
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
-    dlog_this("result lines=%s" % lines)
+
+    # keep the newlines on the lines
+    lines = output.splitlines(True)
+    dlog_this("output lines=%s" % lines)
 
     data = { "return_code": rcode, "data": lines }
     jdata = json.dumps(data)
@@ -2116,10 +2119,10 @@ def parse_multipart(data):
 #     (set src, dest in the command)
 # This code assumes that the upload_cmd can handle individual
 # files as well as recursive directory copies
-def do_board_upload(req, board, board_map, rest):
+def do_board_upload(req, board, bmap, rest):
     # check that user has board reserved
     user = req.get_user()
-    assigned_to = board_map.get("AssignedTo", "nobody")
+    assigned_to = bmap.get("AssignedTo", "nobody")
 
     if user != assigned_to:
         msg = "Device is not assigned to you. It is assigned to '%s'.\nCannot do upload." % assigned_to
@@ -2145,7 +2148,7 @@ def do_board_upload(req, board, board_map, rest):
     data = form_dict["file"]
 
     # make sure board supports upload operation
-    cmd_str = board_map.get("upload_cmd", None)
+    cmd_str = bmap.get("upload_cmd", None)
     if not cmd_str:
         msg = "Device '%s' is not configured with upload_cmd" % board
         req.send_api_response_msg(RSLT_FAIL, msg)
@@ -2159,19 +2162,22 @@ def do_board_upload(req, board, board_map, rest):
         fd.write(data)
 
     upload_map = { "src": staged_path, "dest": dest_path }
-    cmd_str = get_interpolated_str(cmd_str, board_map, upload_map)
+    cmd_str = get_interpolated_str(cmd_str, bmap, upload_map)
 
     log_this("executing upload command: %s" % cmd_str)
-    lines, rcode, msg = run_command(cmd_str)
-    if msg:
+    rcode, output = getstatusoutput(cmd_str)
+    if rcode:
+        msg = "Result of upload operation on board %s = %d\n" % (board, rcode)
+        msg += "command output='%s'" % output
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
-    dlog_this("result lines=%s" % lines)
 
     # clean up temporary files
     os.remove(staged_path)
     os.rmdir(tmpdir)
 
+    # FIXTHIS - what should data result be for file upload?
+    lines = output.splitlines()
     data = { "return_code": rcode, "data": lines }
     jdata = json.dumps(data)
     dlog_this("jdata='%s'" % jdata)
@@ -2240,7 +2246,7 @@ data_suffix=".data"
 
 # return pid of command
 # only execute a single-line command, for now
-def new_exec_command(cmd):
+def start_command(cmd):
     from subprocess import Popen, PIPE, STDOUT
 
 
@@ -2265,15 +2271,29 @@ def run_timeout(proc):
     proc.kill()
 
 
-# execute a single-line command, and return:
-# lines, return_code, reason
-# where lines is the command output, and return_code is the exit code
-# of the command.  On failure, reason is non-empty and contains
-# a description of the problem.
-def run_command(cmd):
+# FIXTHIS - TRB work in progress
+# if program filename is not a path, try looking for it in the 'utils' dir
+#program_name=exec_args[0]
+#utils_dir = os.path.abspath(req.config.base_dir + "/../utils/")
+#if "/" not in program_name and os.path.isfile(utils_dir + program_name):
+#    exec_args[0] = utils_dir + program_name
+#
+#dlog_this("exec_args in run_command are: %s" % str(exec_args))
+
+# Execute a single-line command, waiting no longer than 60 seconds.
+#
+# returns: return_code, output, reason
+# where return_code is the exit code
+# of the command, and lines is an array of the command output.
+#
+# On failure, reason is non-empty and contains a description of the problem.
+#
+def run_command(req, cmd):
     from subprocess import Popen, PIPE, STDOUT
 
     exec_args = shlex.split(cmd)
+
+    output = ""
 
     # FIXTHIS - add more stuff here
 
@@ -2281,10 +2301,10 @@ def run_command(cmd):
         proc = Popen(exec_args, stdin=PIPE, stdout=PIPE, stderr=PIPE, close_fds=True)
     except subprocess.CalledProcessError as e:
         msg = "Can't run command '%s' in exec_command" % cmd
-        return (0, msg)
+        return (0, output, msg)
     except OSError as error:
         msg = error + " trying to execute command '%s'" % cmd
-        return (0, msg)
+        return (0, output, msg)
 
     # don't allow command to run for more than 60 seconds
     timer = threading.Timer(60.0, run_timeout, [proc])
@@ -2311,10 +2331,7 @@ def run_command(cmd):
     log_this("rcode=%s" % rcode)
 
     log_this("output='%s'" % output)
-    # keep the newlines on the lines
-    lines = output.splitlines(True)
-    #lines = output.split("\n")
-    return (lines, rcode, None)
+    return (rcode, output, None)
 
 # returns non-empty reason string on failure
 def set_config(req, action, resource_map, config_map, rest):
@@ -2339,7 +2356,7 @@ def set_config(req, action, resource_map, config_map, rest):
             cmd_vars[key] = value
 
     cmd_str = get_interpolated_str(config_cmd, cmd_vars)
-    rcode, result = getstatusoutput(cmd_str)
+    rcode, output = getstatusoutput(cmd_str)
     if rcode:
         msg = "Result of set-config operation on resource %s = %d\n" % (resource, rcode)
 
@@ -2347,7 +2364,7 @@ def set_config(req, action, resource_map, config_map, rest):
         # (outside the ascii range), which cause an exception if you don't
         # decode them. (ie, they get auto-decoded as ascii)
         # Have I told you, lately, how much I hate python unicode handling??
-        output = result.decode('utf8', errors='ignore')
+        output = output.decode('utf8', errors='ignore')
         msg += "command output (decoded)='" + output + "'"
         return msg
 
@@ -2393,7 +2410,7 @@ def start_capture(req, action, resource_map, rest):
     dlog_this("(interpolated) cmd=" + cmd)
 
     # save pid in a file, named with the token used earlier
-    pid, msg = new_exec_command(cmd)
+    pid, msg = start_command(cmd)
     if not pid:
         log_this("exec failure: reason=" + msg)
         return ("", msg)
@@ -2508,11 +2525,11 @@ def put_data(req, action, resource_map, rest):
 
     cmd_str = put_cmd % d
     dlog_this("(interpolated) cmd_str='%s'" + cmd_str)
-    rcode, result = getstatusoutput(cmd_str)
+    rcode, output = getstatusoutput(cmd_str)
     os.remove(datapath)
     if rcode:
         msg = "Result of put operation on resource %s = %d\n" % (resource, rcode)
-        output = result.decode('utf8', errors='ignore')
+        output = output.decode('utf8', errors='ignore')
         msg += "command output (decoded)='" + output + "'"
         return msg
 
@@ -2737,7 +2754,7 @@ def do_api(req):
     dlog_this("in do_api")
     # determine api operation from path
     req_path = req.environ.get("PATH_INFO", "")
-    dlog_this("TRB: req_path=%s" % req_path)
+    dlog_this("req_path=%s" % req_path)
     path_parts = req_path.split("/")
     # get the path elements after 'api'
     parts = path_parts[path_parts.index("api")+1:]
