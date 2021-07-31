@@ -2211,6 +2211,94 @@ def do_board_upload(req, board, bmap, rest):
     req.send_api_response_msg(RSLT_OK, msg)
     return
 
+# download operation:
+#   get data from request
+#   use "download_cmd" command to get file or directory from the board
+#     (set src, dest in the command, with dest being a host staging area)
+#   and send file as a tarball
+# files (and directories) are staged on the host.
+# both files and directories are tarballs, and are staged and extracted
+# on the client.
+# This code assumes that the download_cmd (in the board JSON file)
+# can handle individual files as well as recursive directory copies
+# from the target board to the host.
+def do_board_download(req, board, bmap, rest):
+    # check that user has board reserved
+    user = req.get_user()
+    assigned_to = bmap.get("AssignedTo", "nobody")
+
+    if user != assigned_to:
+        msg = "Device is not assigned to you. It is assigned to '%s'.\nCannot do upload." % assigned_to
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    # get data for the download
+    dlog_this("form=%s" % req.form)
+
+    compress = req.form.getfirst("compress", "false")
+    path = req.form.getfirst("path", None)
+    if not path:
+        msg = "Download request is missing path\nCannot do download."
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    dlog_this("path=%s" % path)
+
+    # make sure board supports download operation
+    cmd_str = bmap.get("download_cmd", None)
+    if not cmd_str:
+        msg = "Device '%s' is not configured with download_cmd" % board
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    tmpdir = tempfile.mkdtemp()
+    staged_path = tmpdir
+
+    download_map = { "src": path, "dest": staged_path }
+    cmd_str = get_interpolated_str(cmd_str, bmap, download_map)
+
+    log_this("Executing download command: %s" % cmd_str)
+    rcode, output = getstatusoutput(cmd_str)
+    if rcode:
+        msg = "Could not perform download operation on board %s\n" % board
+        msg += "command output=%s" % output
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    # convert the staged data to a tarball
+    tar_path = "/tmp/" + os.path.basename(path) + ".tar.gz"
+    tar_cmd = "tar -C %s -czf %s %s" % (tmpdir, tar_path, staged_path)
+
+    rcode, output = getstatusoutput(tar_cmd)
+    if rcode:
+        msg = "Could not create tarfile for download\n"
+        msg += "tar output=%s" % output
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    # read file from temp area and write to output
+    with open(tar_path, "rb") as fd:
+        data = fd.read()
+
+    # write file as response
+    # Content-type: text/html; charset=utf-8
+    # Content-Disposition: attachment; filename="%s" % path
+    # Vary: Accept,Cookie,Accept-Encoding
+    # Allow: GET, HEAD, OPTIONS
+    # Content-length: xxx
+    # {data}
+    req.html.append("Content-type: text/plain; charset=utf-8\n")
+    #req.html.append('Content-Disposition: attachment; filename="%s"\n' % path)
+    #req.html.append("Content-Length: %d\n" % len(data))
+    req.html.append(data)
+
+    # clean up staged files and directories
+    import shutil
+    # TRB: disable for a moment shutil.rmtree(tmpdir)
+    #os.remove(tar_path)
+
+    return
+
 
 # rest is a list of the rest of the path
 # supported actions are: get_resource, power, assign, release, run
@@ -2250,6 +2338,10 @@ def return_api_board_action(req, board, action, rest):
 
     elif action == "upload":
         do_board_upload(req, board, board_map, rest)
+        return
+
+    elif action == "download":
+        do_board_download(req, board, board_map, rest)
         return
 
     elif action == "camera":

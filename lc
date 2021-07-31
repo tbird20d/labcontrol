@@ -259,6 +259,14 @@ ex: token=$(lc uart10 serial start)
   the ones currently on the file are used.
 
   The return code indicates success or failure of the upload.
+"""),
+
+"download": ("Download a file or directory from a board (unstable)",
+    """Usage: lc <board> download {src_path} {dest_path}
+  Download a file or directory from the board to the indicated destination
+  path in the local filesystem.
+
+  The return code indicates success or failure of the upload.
 
   This feature is not complete, and it is in "unstable" status.
 """),
@@ -905,6 +913,83 @@ def do_upload(conf, options):
 
     sys.exit(0)
 
+def do_download(conf, options):
+    # board is a required first argument
+    try:
+        board = options[0]
+        del options[0]
+    except:
+        error_out("No board specified for download operation\n" + \
+                "Please specify a board from the list available with 'lc list boards'.")
+
+    if not options:
+        error_out("No file or directory was specified to download.")
+
+    src_path = options[0]
+    del options[0]
+
+    if not options:
+        error_out("Missing destination location download.")
+    dest_path = options[0]
+    del options[0]
+
+    if options:
+        error_out("Too many arguments to download command.")
+
+    url = conf.API_URL_BASE+"api/v0.2/devices/%s/download/?compress=true&path=%s&device_ip=*&username=*" % (board, src_path)
+
+    headers = { "Authorization": "token " + conf.auth_token,
+            "Content-type": "application/json"}
+
+    resp = requests.get(url, headers=headers)
+
+    if resp.status_code != 200:
+        print("resp.status_code=%s" % resp.status_code)
+        error_out("Cannot perform 'download' operation on server")
+
+    #try:
+    #    result = resp_data["result"]
+    #except:
+    #    error_out("Malformed response from server. Missing 'result'. resp=%s" % resp_data)
+    #
+    #if result != RSLT_OK:
+    #    # print error
+    #    try:
+    #        reason = resp_data["message"]
+    #    except:
+    #        reason = "for unknown reasons"
+    #    error_out("Could not do upload: %s" % reason)
+
+    tmpdir = tempfile.mkdtemp()
+    src_name = os.path.basename(src_path)
+    tar_name = src_name + ".tar.gz"
+    tar_path = tmpdir + "/" + tar_name
+
+    data = resp.content
+    print("TRB: resp.content=%s" % data)
+    with open(tar_path, "wb") as fd:
+        fd.write(data)
+
+    dest_parent = os.path.dirname(os.path.realpath(dest_path)
+
+    # extract the tar to retrieve the file(s)
+    print("TRB: here1")
+    tar_cmd = "tar -C %s -xf %s" % (dest_parent, tar_path)
+    rcode = os.system(tar_cmd)
+    print("TRB: here2")
+    if rcode:
+        error_out("Cannot perform tar for 'download' operation")
+
+    # remove intermediate files and dirs, if some were created
+    if tar_path:
+        os.remove(tar_path)
+    if tmpdir:
+        os.rmdir(tmpdir)
+
+    #print("resp.content='%s'" % resp.content)
+    print('Successfully Downloaded "%s" into "%s"' % (src_name, dest_path))
+    sys.exit(0)
+
 def do_reserve(conf, options, cmd='reserve'):
     # board is a required first argument
     try:
@@ -1479,6 +1564,10 @@ def main():
 
     if command == "upload":
         do_upload(conf, options)
+        # no return here
+
+    if command == "download":
+        do_download(conf, options)
         # no return here
 
     error_out("Unknown command %s" % command)
