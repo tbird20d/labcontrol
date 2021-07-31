@@ -2117,8 +2117,12 @@ def parse_multipart(data):
 #   get data from request and put it into a local file
 #   use "upload_cmd" command to transfer it to the board
 #     (set src, dest in the command)
-# This code assumes that the upload_cmd can handle individual
-# files as well as recursive directory copies
+# files (and directories) are staged on the host.
+# directories are sent as tarballs, and are staged and extracted
+# on the host.
+# This code assumes that the upload_cmd (in the board JSON file)
+# can handle individual files as well as recursive directory copies
+# from the host to the target.
 def do_board_upload(req, board, bmap, rest):
     # check that user has board reserved
     user = req.get_user()
@@ -2143,7 +2147,7 @@ def do_board_upload(req, board, bmap, rest):
     dest_path = form_dict["path"]
     #dest_path = req.form["data"].value
     dlog_this("dest_path=%s" % dest_path)
-    filename = form_dict["filename"]
+    filename = os.path.basename(form_dict["filename"])
     dlog_this("filename=%s" % filename)
     data = form_dict["file"]
 
@@ -2156,23 +2160,49 @@ def do_board_upload(req, board, bmap, rest):
 
     # read file from form data into temp file on lcserver host system
     tmpdir = tempfile.mkdtemp()
-    #src_filename = os.path.basename(dest_path)
     staged_path=tmpdir + "/" + filename
     with open(staged_path, "wb") as fd:
         fd.write(data)
 
+    extract = form_dict.get("extract", "false")
+    if extract == "true":
+        # extract the tarball into the stage directory
+        tar_cmd = "tar -C %s -xf %s" % (tmpdir, staged_path)
+
+        rcode, output = getstatusoutput(tar_cmd)
+        if rcode:
+            msg = "Could not extract data for directory upload\n"
+            msg += "tar output=%s" % output
+            req.send_api_response_msg(RSLT_FAIL, msg)
+            return
+
+        # remove .tar.gz from filename to get directory name
+        staged_path = staged_path[:-7]
+
+    # do a file or directory upload
     upload_map = { "src": staged_path, "dest": dest_path }
     cmd_str = get_interpolated_str(cmd_str, bmap, upload_map)
 
     log_this("executing upload command: %s" % cmd_str)
     rcode, output = getstatusoutput(cmd_str)
 
+    perms = form_dict.get("permissions", None)
+    if extract != "true" and perms:
+        # FIXTHIS - set permissions on the uploaded file
+        # this may require using a run_cmd for the board
+        pass
+
+    if extract == "true":
+        import shutil
+        shutil.rmtree(staged_path)
+        staged_path += ".tar.gz"
+
     # clean up temporary files
     os.remove(staged_path)
     os.rmdir(tmpdir)
 
     if rcode:
-        msg = "Result of upload operation on board %s = %d\n" % (board, rcode)
+        msg = "Could not perform upload operation on board %s\n" % board
         msg += "command output='%s'" % output
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
