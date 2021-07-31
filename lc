@@ -14,8 +14,9 @@
 # To Do:
 #  - add support for upload
 #  - add support for download
-#  - make lc work with ebf server
-#  - make ebf work with lc server
+#  - add support for "live" run command
+#  + make lc work with ebf server
+#  + make ebf work with lc server
 #
 # Deferred:
 #
@@ -250,7 +251,7 @@ ex: token=$(lc uart10 serial start)
   The return code of the command is the exit code of lc.
 """),
 
-"upload": ("Upload a file or directory to a board (unstable)",
+"upload": ("Upload a file or directory to a board",
     """Usage: lc <board> upload {src_path} {dest_path} [{permissions}]
   Upload a file or directory to the indicated file or directory on
   the board.  Permissions can be optionally specified (in UNIX
@@ -848,29 +849,31 @@ def do_upload(conf, options):
 
     url = conf.API_URL_BASE+"api/v0.2/devices/%s/upload/" % board
 
-    # if it's a directory, tar it up before sending it
     tmpdir = None
     tar_path = None
     data = { "path": dest_path, "device_ip": "10.0.1.1", "username":"root" }
-    files = { "file": (src_filename, open(src_filename, 'rb')) }
 
     if os.path.isdir(src_filename):
+      # if it's a directory, tar it up before sending it
       tmpdir = tempfile.mkdtemp()
-      full_path = os.realpath(src_filename)
+      full_path = os.path.realpath(src_filename)
       src_parent = os.path.dirname(full_path)
       src_name = os.path.basename(full_path)
-      tar_path = tmpdir + "/" + src_name
-      tar_cmd = "tar -czf %s.tgz -C %s %s" % (tar_path, src_parent, src_name)
+      tar_path = tmpdir + "/" + src_name + ".tar.gz"
+      tar_cmd = "tar -czf %s -C %s %s" % (tar_path, src_parent, src_name)
       os.system(tar_cmd)
       data["extract"] = "true"
-      files = { "file": (src_filename, open(tar_path, 'rb')) }
+      files = { "file": (tar_path, open(tar_path, 'rb')) }
+    else:
+      files = { "file": (src_filename, open(src_filename, 'rb')) }
 
     headers = { "Authorization": "token " + conf.auth_token,
             "Content-type": "application/json"}
 
     resp = requests.post(url, headers=headers, data=data, files=files )
     if resp.status_code != 200:
-        error_out("Cannot perform 'run' operation on server")
+        print("resp.status_code=%s" % resp.status_code)
+        error_out("Cannot perform 'upload' operation on server")
 
     # remove intermediate files and dirs, if some were created
     if tar_path:
