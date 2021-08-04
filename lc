@@ -54,12 +54,16 @@ if sys.version_info[0] == 2:
 else:
     get_input = input
 
-
+try:
+    from subprocess import getstatusoutput
+except:
+    from commands import getstatusoutput
+    using_commands_gso = True
 
 # MAJOR, MINOR, REVISION, extra_revision
 # extra_revision, if non-empty, should start with a dash
 # (e.g. "-next", "-rc1")
-VERSION = (0, 6, 0, "")
+VERSION = (0, 6, 1, "")
 
 # this is from the REST API standard
 RSLT_OK = "success"
@@ -869,7 +873,7 @@ def do_upload(conf, options):
       src_name = os.path.basename(full_path)
       tar_path = tmpdir + "/" + src_name + ".tar.gz"
       tar_cmd = "tar -czf %s -C %s %s" % (tar_path, src_parent, src_name)
-      os.system(tar_cmd)
+      rcode, output = getstatusoutput(tar_cmd)
       data["extract"] = "true"
       files = { "file": (tar_path, open(tar_path, 'rb')) }
     else:
@@ -966,25 +970,27 @@ def do_download(conf, options):
     tar_path = tmpdir + "/" + tar_name
 
     data = resp.content
-    print("TRB: resp.content=%s" % data)
     with open(tar_path, "wb") as fd:
         fd.write(data)
 
-    dest_parent = os.path.dirname(os.path.realpath(dest_path)
+    dest_parent = os.path.dirname(os.path.realpath(dest_path))
 
     # extract the tar to retrieve the file(s)
-    print("TRB: here1")
-    tar_cmd = "tar -C %s -xf %s" % (dest_parent, tar_path)
-    rcode = os.system(tar_cmd)
-    print("TRB: here2")
+    tar_cmd = "tar -C %s -xf %s" % (tmpdir, tar_path)
+    rcode, output = getstatusoutput(tar_cmd)
     if rcode:
         error_out("Cannot perform tar for 'download' operation")
 
+    cp_cmd = "cp -rf %s %s" % (tmpdir + src_path, dest_path)
+    rcode, output = getstatusoutput(cp_cmd)
+    if rcode:
+        error_out("Cannot perform cp for 'download' operation")
+
     # remove intermediate files and dirs, if some were created
-    if tar_path:
-        os.remove(tar_path)
+
     if tmpdir:
-        os.rmdir(tmpdir)
+        import shutil
+        shutil.rmtree(tmpdir)
 
     #print("resp.content='%s'" % resp.content)
     print('Successfully Downloaded "%s" into "%s"' % (src_name, dest_path))

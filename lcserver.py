@@ -88,7 +88,7 @@ except:
     from commands import getstatusoutput
     using_commands_gso = True
 
-VERSION=(0,6,0)
+VERSION=(0,6,1)
 
 SERVER_CONF_FILENAME="/etc/lcserver.conf"
 
@@ -2097,7 +2097,7 @@ def parse_multipart(data):
             log_this("unrecognized section in form data: '%s'" % section)
             continue
         key = section.split("name=")[1].split(";")[0].split('\r')[0].replace('"','')
-        dlog_this("key=%s" % key)
+        #dlog_this("key=%s" % key)
         try:
             val_parts = section.split("\r\n")[3:-1]
         except IndexError:
@@ -2105,7 +2105,7 @@ def parse_multipart(data):
             continue
         #dlog_this("val_parts=%s" % val_parts)
         value = "\r\n".join(val_parts)
-        dlog_this("value='%s'" % value)
+        #dlog_this("value='%s'" % value)
         data_dict[key] = value
         if key=="file":
             filename = section.split("filename=")[1].split(";")[0].split('\r')[0].replace('"','')
@@ -2135,17 +2135,13 @@ def do_board_upload(req, board, bmap, rest):
 
     # get data for the upload
     form_data = req.form.value
-    dlog_this("req.form.value=%s" % str(form_data))
     if "Content-Disposition:" in form_data:
         form_dict = parse_multipart(form_data)
     else:
         # this probably won't work, but what have I got to lose?
         form_dict = req.form
 
-    dlog_this("form_dict=%s" % form_dict)
-
     dest_path = form_dict["path"]
-    #dest_path = req.form["data"].value
     dlog_this("dest_path=%s" % dest_path)
     filename = os.path.basename(form_dict["filename"])
     dlog_this("filename=%s" % filename)
@@ -2178,6 +2174,7 @@ def do_board_upload(req, board, bmap, rest):
 
         # remove .tar.gz from filename to get directory name
         staged_path = staged_path[:-7]
+        filename = filename[:-7]
 
     # do a file or directory upload
     upload_map = { "src": staged_path, "dest": dest_path }
@@ -2192,14 +2189,9 @@ def do_board_upload(req, board, bmap, rest):
         # this may require using a run_cmd for the board
         pass
 
-    if extract == "true":
-        import shutil
-        shutil.rmtree(staged_path)
-        staged_path += ".tar.gz"
-
-    # clean up temporary files
-    os.remove(staged_path)
-    os.rmdir(tmpdir)
+    # clean up temporary files and directories
+    import shutil
+    shutil.rmtree(tmpdir)
 
     if rcode:
         msg = "Could not perform upload operation on board %s\n" % board
@@ -2233,16 +2225,15 @@ def do_board_download(req, board, bmap, rest):
         return
 
     # get data for the download
-    dlog_this("form=%s" % req.form)
 
     compress = req.form.getfirst("compress", "false")
-    path = req.form.getfirst("path", None)
-    if not path:
+    src_path = req.form.getfirst("path", None)
+    if not src_path:
         msg = "Download request is missing path\nCannot do download."
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
-    dlog_this("path=%s" % path)
+    dlog_this("src_path=%s" % src_path)
 
     # make sure board supports download operation
     cmd_str = bmap.get("download_cmd", None)
@@ -2251,10 +2242,13 @@ def do_board_download(req, board, bmap, rest):
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
+    # create staging directory for file transfer
     tmpdir = tempfile.mkdtemp()
-    staged_path = tmpdir
+    src_parent_dir = os.path.dirname(src_path)
+    staged_path = tmpdir + src_parent_dir
+    os.makedirs(staged_path)
 
-    download_map = { "src": path, "dest": staged_path }
+    download_map = { "src": src_path, "dest": staged_path }
     cmd_str = get_interpolated_str(cmd_str, bmap, download_map)
 
     log_this("Executing download command: %s" % cmd_str)
@@ -2266,9 +2260,10 @@ def do_board_download(req, board, bmap, rest):
         return
 
     # convert the staged data to a tarball
-    tar_path = "/tmp/" + os.path.basename(path) + ".tar.gz"
-    tar_cmd = "tar -C %s -czf %s %s" % (tmpdir, tar_path, staged_path)
+    tar_path = tmpdir + "/" + os.path.basename(src_path) + ".tar.gz"
+    tar_cmd = "tar -C %s -czf %s %s" % (tmpdir, tar_path, src_path[1:])
 
+    dlog_this("Executing tar_cmd: %s" % tar_cmd)
     rcode, output = getstatusoutput(tar_cmd)
     if rcode:
         msg = "Could not create tarfile for download\n"
@@ -2287,17 +2282,26 @@ def do_board_download(req, board, bmap, rest):
     # Allow: GET, HEAD, OPTIONS
     # Content-length: xxx
     # {data}
-    req.html.append("Content-type: text/plain; charset=utf-8\n")
-    #req.html.append('Content-Disposition: attachment; filename="%s"\n' % path)
-    #req.html.append("Content-Length: %d\n" % len(data))
-    req.html.append(data)
+
+    # Binary data needs to be sent directly:
+
+    # this was using the html.append method of returning the response
+    #req.html.append("Content-type: text/plain; charset=utf-8\n")
+    ##req.html.append('Content-Disposition: attachment; filename="%s"\n' % src_path)
+    ##req.html.append("Content-Length: %d\n" % len(data))
+    #req.html.append(data)
+
+    # output the data directly
+    # should check req.is_cgi here.  this will need to be different for wsgi
+    sys.stdout.write("Content-type: text/plain; charset=utf-8\n\n")
+    sys.stdout.write(data)
+    sys.stdout.flush()
 
     # clean up staged files and directories
     import shutil
-    # TRB: disable for a moment shutil.rmtree(tmpdir)
-    #os.remove(tar_path)
+    shutil.rmtree(tmpdir)
 
-    return
+    sys.exit(0)
 
 
 # rest is a list of the rest of the path
@@ -2370,7 +2374,7 @@ def start_command(cmd):
 
     exec_args = shlex.split(cmd)
 
-    # FIXTHIS - add more stuff here
+    # FIXTHIS - handle multi-line commands in start_command()
 
     try:
         proc = Popen(exec_args, stdin=PIPE, stdout=PIPE, stderr=PIPE, close_fds=True)
@@ -2994,7 +2998,9 @@ def handle_request(environ, req):
     # debug request data
     if debug:
         log_env(req, CGI_VARS)
-        dlog_this("form.value=%s" % req.form.value)
+        #content_len = environ.get("CONTENT_LENGTH", 0)
+        #if content_len and content_len < 1000:
+        #    dlog_this("form.value=%s" % req.form.value)
 
     # determine action, if any
     try:
@@ -3075,6 +3081,7 @@ def cgi_main():
     form = cgi.FieldStorage()
 
     req = req_class(config, form)
+    req.is_cgi = True
 
     try:
         handle_request(os.environ, req)
