@@ -1377,41 +1377,38 @@ def show_board(req, board):
 
     # show last image taken by camera, if there is one
 
-    image_filename = "%s-last-camera-image.jpeg" % board
-    image_path = req.config.files_dir + "/" + image_filename
+    image_link_filename = "%s-last-camera-image.jpeg" % board
+    image_link_path = req.config.files_dir + "/" + image_link_filename
     # note: link contents (target) is just the filename
-    have_image_file = False
-    if os.path.islink(image_path):
-        target = os.readlink(image_path)
-        if os.path.isfile(req.config.files_dir + "/" + target):
-            have_image_file = True
+    image_url = ""
+    if os.path.islink(image_link_path):
+        image_filename = os.readlink(image_link_path)
+        if os.path.isfile(req.config.files_dir + "/" + image_filename):
+            image_url = req.config.files_url_base + "/files/" + image_filename
 
-    video_filename = "/%s-last-camera-video.jpeg" % board
-    video_path = req.config.files_dir + video_filename
+    video_link_filename = "/%s-last-camera-video.jpeg" % board
+    video_link_path = req.config.files_dir + video_link_filename
     # note: link contents (target) is just the filename
-    have_video_file = False
-    if os.path.islink(video_path):
-        target = os.readlink(video_path)
-        if os.path.isfile(req.config.files_dir + "/" + target):
-            have_video_file = True
+    video_url = ""
+    if os.path.islink(video_link_path):
+        video_filename = os.readlink(video_path)
+        if os.path.isfile(req.config.files_dir + "/" + video_filename):
+            video_url = req.config.files_url_base + "/files/" + video_filename
 
-    if have_image_file or have_video_file:
+    if image_url or video_url:
         req.html.append('</td><td style="padding: 5px" align=top>\n')
-        if have_image_file:
-            image_link = req.config.files_url_base + "/files/" + image_filename
+        if image_url:
             req.html.append("""
 <h2 align="center">Last Camera Image</h2>
 <image src="%s" height="200" width="300">
 <p>
-""" % image_link)
+""" % image_url)
 
-        if have_video_file:
-            video_link = req.config.files_url_base + "/files/" + video_filename
-
+        if video_url:
             req.html.append("""
 <h2 align="center">Last Camera Video</h2>
-<image src="%s" height="600" width="400">
-""" % video_link)
+<image src="%s" height="200" width="300">
+""" % video_url)
 
     req.html.append("</td></tr></table>\n")
 
