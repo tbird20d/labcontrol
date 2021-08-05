@@ -213,7 +213,7 @@ class page_data_class:
         try:
             if new_dir:
                 os.chdir(new_dir)
-            status, output = commands.getstatusoutput(cmd)
+            status, output = getstatusoutput(cmd)
             if status==0:
                 output
             else:
@@ -1305,9 +1305,9 @@ def get_power_status(req, bmap):
         return (RSLT_FAIL, msg)
 
     cmd_str = pdu_map["status_cmd"]
-    cmd_str = get_interpolated_str(cmd_str, bmap, pdu_map)
+    icmd_str = get_interpolated_str(cmd_str, bmap, pdu_map)
 
-    rcode, output = getstatusoutput(cmd_str)
+    rcode, output = lc_getstatusoutput(req, icmd_str)
     if rcode:
         msg = "Result of power status operation on board %s = %d\n" % (bmap["name"], rcode)
         msg += "command output='%s'" % output
@@ -1353,8 +1353,8 @@ def show_board(req, board):
     if cmd_str:
         run_map = { "command": "uptime" }
 
-        cmd_str = get_interpolated_str(cmd_str, bmap, run_map)
-        rcode, output = getstatusoutput(cmd_str)
+        icmd_str = get_interpolated_str(cmd_str, bmap, run_map)
+        rcode, output = lc_getstatusoutput(req, icmd_str)
     else:
         output = "<i>Board does not have a 'run_cmd' specified</i>"
         rcode = 0
@@ -1401,7 +1401,7 @@ def show_board(req, board):
             image_link = req.config.files_url_base + "/files/" + image_filename
             req.html.append("""
 <h2 align="center">Last Camera Image</h2>
-<image src="%s" height="600" width="400">
+<image src="%s" height="200" width="300">
 <p>
 """ % image_link)
 
@@ -1810,9 +1810,8 @@ def exec_command(req, board_map, resource_map, res_cmd):
 
     cmd_str = resource_map[res_cmd_str]
 
-    cmd_str = get_interpolated_str(cmd_str, board_map, resource_map)
-
-    rcode, output = getstatusoutput(cmd_str)
+    icmd_str = get_interpolated_str(cmd_str, board_map, resource_map)
+    rcode, output = lc_getstatusoutput(req, icmd_str)
     if rcode:
         msg = "Result of %s operation on resource %s = %d" % (res_cmd, resource_map["name"], rcode)
         msg += "command output='%s'" % output
@@ -2178,10 +2177,10 @@ def do_board_upload(req, board, bmap, rest):
 
     # do a file or directory upload
     upload_map = { "src": staged_path, "dest": dest_path }
-    cmd_str = get_interpolated_str(cmd_str, bmap, upload_map)
+    icmd_str = get_interpolated_str(cmd_str, bmap, upload_map)
 
-    log_this("executing upload command: %s" % cmd_str)
-    rcode, output = getstatusoutput(cmd_str)
+    log_this("Executing upload command: %s" % icmd_str)
+    rcode, output = lc_getstatusoutput(req, icmd_str)
 
     perms = form_dict.get("permissions", None)
     if extract != "true" and perms:
@@ -2249,10 +2248,10 @@ def do_board_download(req, board, bmap, rest):
     os.makedirs(staged_path)
 
     download_map = { "src": src_path, "dest": staged_path }
-    cmd_str = get_interpolated_str(cmd_str, bmap, download_map)
+    icmd_str = get_interpolated_str(cmd_str, bmap, download_map)
 
-    log_this("Executing download command: %s" % cmd_str)
-    rcode, output = getstatusoutput(cmd_str)
+    log_this("Executing download command: %s" % icmd_str)
+    rcode, output = lc_getstatusoutput(req, icmd_str)
     if rcode:
         msg = "Could not perform download operation on board %s\n" % board
         msg += "command output=%s" % output
@@ -2393,17 +2392,27 @@ def run_timeout(proc):
     proc.kill()
 
 
-# FIXTHIS - TRB work in progress
-# if program filename is not a path, try looking for it in the 'utils' dir
-#program_name=exec_args[0]
-#utils_dir = os.path.abspath(req.config.base_dir + "/../utils/")
-#if "/" not in program_name and os.path.isfile(utils_dir + program_name):
-#    exec_args[0] = utils_dir + program_name
-#
-#dlog_this("exec_args in run_command are: %s" % str(exec_args))
+# special (lc version of) getstatusouput
+# return rcode, output from getstatusoutput from command
+# the difference with this command is that it supports running
+# items from the labcontrol utils directory
+def lc_getstatusoutput(req, cmd):
+    program_name=shlex.split(cmd)[0]
 
-# Execute a single-line command, waiting no longer than 60 seconds.
-#
+    # if program filename is not a path, look for it in the 'utils' dir
+    if "/" not in program_name:
+        utils_dir = os.path.abspath(req.config.base_dir + "/../utils/")
+        prog_path = utils_dir + "/" + program_name
+        if os.path.isfile(prog_path):
+            # substitute the utils program path for the original program name in
+            # the command string (slice off the original program name)
+            args = cmd[len(program_name):]
+            cmd = prog_path + " " + args
+
+    dlog_this("cmd in lc_getstatusoutput is: %s" % cmd)
+    return getstatusoutput(cmd)
+
+# run_command - run a single line command
 # returns: return_code, output, reason
 # where return_code is the exit code
 # of the command, and lines is an array of the command output.
@@ -2477,8 +2486,8 @@ def set_config(req, action, resource_map, config_map, rest):
         if key in allowed_config_items:
             cmd_vars[key] = value
 
-    cmd_str = get_interpolated_str(config_cmd, cmd_vars)
-    rcode, output = getstatusoutput(cmd_str)
+    icmd_str = get_interpolated_str(config_cmd, cmd_vars)
+    rcode, output = lc_getstatusoutput(req, icmd_str)
     if rcode:
         msg = "Result of set-config operation on resource %s = %d\n" % (resource, rcode)
 
@@ -2645,9 +2654,9 @@ def put_data(req, action, resource_map, rest):
     d = copy.deepcopy(resource_map)
     d["datafile"] = datapath
 
-    cmd_str = put_cmd % d
-    dlog_this("(interpolated) cmd_str='%s'" + cmd_str)
-    rcode, output = getstatusoutput(cmd_str)
+    icmd_str = put_cmd % d
+    dlog_this("(interpolated) cmd_str='%s'" + icmd_str)
+    rcode, output = lc_getstatusoutput(req, icmd_str)
     os.remove(datapath)
     if rcode:
         msg = "Result of put operation on resource %s = %d\n" % (resource, rcode)
