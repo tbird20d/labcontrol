@@ -865,7 +865,7 @@ def do_upload(conf, options):
 
     tmpdir = None
     tar_path = None
-    data = { "path": dest_path, "device_ip": "10.0.1.1", "username":"root" }
+    data = { "path": dest_path, "device_ip": "10.0.1.1", "username":"root", "permissions": permissions }
 
     if os.path.isdir(src_filename):
       # if it's a directory, tar it up before sending it

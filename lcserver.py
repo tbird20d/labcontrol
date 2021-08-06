@@ -2138,10 +2138,15 @@ def do_board_upload(req, board, bmap, rest):
         form_dict = req.form
 
     dest_path = form_dict["path"]
-    dlog_this("dest_path=%s" % dest_path)
     filename = os.path.basename(form_dict["filename"])
-    dlog_this("filename=%s" % filename)
+    extract = form_dict.get("extract", "false")
+    perms = form_dict.get("permissions", None)
     data = form_dict["file"]
+
+    dlog_this("dest_path=%s" % dest_path)
+    dlog_this("filename=%s" % filename)
+    dlog_this("extract=%s" % extract)
+    dlog_this("perms=%s" % perms)
 
     # make sure board supports upload operation
     cmd_str = bmap.get("upload_cmd", None)
@@ -2156,7 +2161,11 @@ def do_board_upload(req, board, bmap, rest):
     with open(staged_path, "wb") as fd:
         fd.write(data)
 
-    extract = form_dict.get("extract", "false")
+    if extract != "true" and perms:
+        # set permissions on the staged file
+        # note: perms is an octal string (without a leading 0)
+        os.chmod(staged_path, int(perms, 8))
+
     if extract == "true":
         # extract the tarball into the stage directory
         tar_cmd = "tar -C %s -xf %s" % (tmpdir, staged_path)
@@ -2178,12 +2187,6 @@ def do_board_upload(req, board, bmap, rest):
 
     log_this("Executing upload command: %s" % icmd_str)
     rcode, output = lc_getstatusoutput(req, icmd_str)
-
-    perms = form_dict.get("permissions", None)
-    if extract != "true" and perms:
-        # FIXTHIS - set permissions on the uploaded file
-        # this may require using a run_cmd for the board
-        pass
 
     # clean up temporary files and directories
     import shutil
