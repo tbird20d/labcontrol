@@ -119,6 +119,11 @@ class config_class:
         if not os.path.exists(self.base_dir):
             self.base_dir = "/home/tbird/work/labcontrol/lc-data"
 
+        self.default_reservation_duration = "forever"
+
+        # #### this is the end of the defaults section ####
+        # settings after this will not be overridden by the config file
+
         # allow items in the server config file to override default
         # or detected values
         #config_msg = "reading config file...<br>\n"
@@ -138,6 +143,7 @@ class config_class:
         self.data_dir = self.base_dir + "/data"
         self.files_dir = self.base_dir + "/files"
         self.page_dir = self.base_dir + "/pages"
+
         config_msg += "config='%s'" % self.__dict__
 
     def __getitem__(self, name):
@@ -1986,24 +1992,51 @@ def do_board_power_operation(req, board, board_map, rest):
         return
 
 def do_board_assign(req, board, board_map, rest):
+    duration = ""
     if rest:
-        msg = "extra data '%s' in assign operation" % str(rest)
-        req.send_api_response_msg(RSLT_FAIL, msg)
-        return
+        try:
+            duration = int(rest[0])
+        except ValueError:
+            msg = "Invalid duration '%s' in assign operation" % rest[0]
+            req.send_api_response_msg(RSLT_FAIL, msg)
+        del(rest[0])
+        if rest:
+            msg = "extra data '%s' in assign operation" % str(rest)
+            req.send_api_response_msg(RSLT_FAIL, msg)
+            return
+
+    if not duration:
+        # get default reservation duration from server config
+        duration = req.config.default_reservation_duration
 
     # get current user, and add reservation for board to user
     user = req.get_user()
     assigned_to = board_map.get("AssignedTo", "nobody")
     if assigned_to != "nobody":
+        end_time = board_map.get("end_time", "unknown")
         if user == assigned_to:
-            msg = "Device is already assigned to you"
+            msg = "Device is already assigned to you, ending %s" % end_time
         else:
-            msg = "Device is already assigned to %s" % assigned_to
+            msg = "Device is already assigned to %s, ending %s" % (assigned_to, end_time)
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
     if user and user != "nobody":
+        import datetime
+
         board_map["AssignedTo"] = user
+
+        start_time = datetime.datetime.now()
+        log_this("Start time of reservation=%s" % start_time)
+        board_map["start_time"] = start_time.strftime("%Y-%m-%d_%H:%M:%S")
+
+        if duration != "forever":
+            # duration might still be a string, if read from config
+            y = datetime.timedelta(minutes=int(duration))
+            end_time = start_time + y
+            board_map["end_time"] = end_time.strftime("%Y-%m-%d_%H:%M:%S")
+        else:
+            board_map["end_time"] = "never"
     else:
         msg = "Cannot determine user for operation"
         req.send_api_response_msg(RSLT_FAIL, msg)
@@ -2044,6 +2077,8 @@ def do_board_release(req, board, board_map, rest):
             return
 
     board_map["AssignedTo"] = "nobody"
+    board_map["start_time"] = "0-0-0_0:0:0"
+    board_map["end_time"] = "0-0-0_0:0:0"
 
     # save data back to json file
     msg = save_object_data(req, "board", board, board_map)
