@@ -788,9 +788,11 @@ def do_run(conf, options):
     # what happens to single arguments with a space?
     run_cmd = " ".join(options)
 
+    run_cmd_escaped = json.dumps(run_cmd)
+
     url = conf.API_URL_BASE+"api/v0.2/devices/%s/run/" % board
 
-    jdata = '{ "command": "%s", "device_ip": "*", "username":"*" }' % run_cmd
+    jdata = '{ "command": %s, "device_ip": "*", "username":"*" }' % run_cmd_escaped
 
     headers = { "Authorization": "token " + conf.auth_token,
             "Content-type": "application/json"}
