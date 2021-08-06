@@ -1473,18 +1473,49 @@ def show_resource(req, resource):
     req.show_footer()
 
 def show_users(req):
+    d = {}
     req.html.append("<H1>Users</h1>")
     users = get_object_list(req, "user")
+    boards = get_object_list(req, "board")
+
+    # collect reservation data
+    # each entry is res_map is a list of reservations for a given user user
+    # consisting of (board, start_time, end_time)
+    res_map = {}
+    for board in boards:
+        bmap = get_object_map(req, "board", board)
+        res_user = bmap["AssignedTo"]
+        if res_user != "nobody":
+            start_time = bmap.get("start_time", "unknown")
+            end_time = bmap.get("end_time", "unknown")
+            reservation = (board, start_time, end_time)
+
+            if res_user not in res_map:
+                res_map[res_user] = [reservation]
+            else:
+                res_map[res_user].append(reservation)
 
     # show a table of attributes
     req.html.append('<table class="user_table" border="1" style="border-collapse: collapse; padding: 5px" >\n<tr>\n')
-    req.html.append("  <th>Name</th><th>Reservations</th><th>Last access</th>\n</tr>\n")
+    req.html.append('  <th>Name</th><th>Reservations</th><th>Last access</th>\n</tr>\n')
     for user in users:
         req.html.append("<tr>\n")
         umap = get_object_map(req, "user", user)
-        req.html.append('  <td valign="top" align="center" style="padding: 5px"><h3>%(name)s</h3></td>\n' % umap)
-        req.html.append('  <td valign="top" style="padding: 5px"><i>Not implemented yet</i></td>\n')
-        req.html.append('  <td valign="top" style="padding: 5px"><i>Not implemented yet</i></td>\n')
+        reservations = res_map.get(user, [])
+
+        req.html.append('  <td valign="top" align="center" style="padding: 5px"><h3>%s</h3></td>\n' % umap["name"])
+
+        if reservations:
+            req.html.append("""    <td><table>
+    <tr><th>Board</th><th>Start Time</th><th>End Time</th></tr>""")
+            for res in reservations:
+                req.html.append('    <tr><td>%s</td><td>%s</td><td>%s</td></tr>' % (res[0], res[1], res[2]))
+            req.html.append("    </table>\n  </td>")
+        else:
+            req.html.append('  <td valign="top" style="padding: 5px"><i>None</i></td>')
+
+        req.html.append(""" <td valign="top" style="padding: 5px"><i>Not implemented yet</i></td>\n""")
+
         req.html.append("</tr>\n")
 
     req.html.append("</table>")
