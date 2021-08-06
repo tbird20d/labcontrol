@@ -28,6 +28,7 @@
 
 import os
 import sys
+import re
 import tempfile
 import importlib
 
@@ -37,7 +38,8 @@ if sys.version_info[0] < 3:
     sys.setdefaultencoding('utf8')
 
 import requests
-# FIXTHIS - python 2to3 added the following urllib imports
+
+# python 2to3 added the following urllib imports
 # It's not clear that urllib.request or urllib.error are needed
 # They are not used anywhere.  Comment them out for now.
 #import urllib.request, urllib.parse, urllib.error
@@ -117,23 +119,37 @@ command_help = {
   Example: lc list boards
 """),
 
-"allocate": ("Reserve a board for my use.",
-    """Usage: lc {board} allocate
+"reserve": ("Reserve a board for use.",
+    """Usage: lc {board} reserve [-f] [{duration}]
+
   Reserve a board for my use.  This assigns a board
   for use with my user account, so that my account has
   exclusive access for testing and manipulating the board.
+
+  If a duration is specified, try to make the reservation for
+  that amount of time.  Time is specified using as a string with an 'h'
+  or 'm' suffix indicating the number of hours and minutes.  For example:
+   '30m' = 30 minutes, '2h' = 2 hours, '1h15m' = 1 hour and 15 minutes.
+
+  If no duration is specified, the reservation may be infinite (lasting
+  until manually released) or have a set time, depending on server
+  policy.
+
+  If -f is specified, then the reservation is 'forced' and any
+  current reservation by another user is released, before the board
+  is reserved for this user.
+
+  A message and the exit code indicate whether the resource is
+  already reserved.
+
+  ex: lc beablebone reserve 2h"""),
+
+"allocate": ("Reserve a board for my use.",
+    """Usage: lc {board} allocate [-f] [{duration}]
+  Reserve a board for my use.
 
   This is the same as the 'reserve' command, and is included
   for compatibility with 'ebf'.
-"""),
-
-"reserve": ("Reserve a board for my use.",
-    """Usage: lc {board} reserve
-  Reserve a board for my use.  This assigns a board
-  for use with my user account, so that my account has
-  exclusive access for testing and manipulating the board.
-
-  This is the same as the 'allocate' command.
 """),
 
 "release": ("Release a board reservation.",
@@ -175,7 +191,7 @@ a message will be provided.
 """),
 
 "get-resource": ("Get a resource associated with a board.",
-    """Usage: lc <board> get-resource <resource_type> [<feature-str>]
+    """Usage: lc {board} get-resource {resource_type} [{feature-str}]
   Get a resource associated with a board.  The resource type can
   be one of: "power-measurement","serial".
 
@@ -249,14 +265,14 @@ ex: token=$(lc uart10 serial start)
 """),
 
 "run": ("Run a command on a board",
-    """Usage: lc <board> run {command} {args}...
+    """Usage: lc {board} run {command} {args}...
   Run a command on a board. Output from the command is displayed.
 
   The return code of the command is the exit code of lc.
 """),
 
 "upload": ("Upload a file or directory to a board",
-    """Usage: lc <board> upload {src_path} {dest_path} [{permissions}]
+    """Usage: lc {board} upload {src_path} {dest_path} [{permissions}]
   Upload a file or directory to the indicated file or directory on
   the board.  Permissions can be optionally specified (in UNIX
   numeric octal format).  If the permissions are not specified, then
@@ -266,7 +282,7 @@ ex: token=$(lc uart10 serial start)
 """),
 
 "download": ("Download a file or directory from a board (unstable)",
-    """Usage: lc <board> download {src_path} {dest_path}
+    """Usage: lc {board} download {src_path} {dest_path}
   Download a file or directory from the board to the indicated destination
   path in the local filesystem.
 
@@ -282,21 +298,10 @@ ex: token=$(lc uart10 serial start)
 "version": ("Show version information and exit.", ""),
 
 "status": ("Show status of a board.",
-        """Usage: lc <board> status
+        """Usage: lc {board} status
 
 Show the reservation status for a board."""),
 
-"reserve": ("Reserve a board or resource for use.",
-    """Usage: lc <board> reserve [-f] <name>
-
-Reserve the named resource.  Currently, only boards may be reserved.
-A message and the exit code indicate whether the resource is
-already reserved.
-
-If -f is specified, then the reservation is 'forced' and any
-current reservation is overridden with the new one.
-
-   ex: lc beablebone reserve"""),
 }
 
 # here's a helper routine to print a variable with it's name and value
@@ -784,8 +789,6 @@ def do_run(conf, options):
     if not options:
         error_out("No command was specified to run.")
 
-    # FIXTHIS - not sure about just joining the args with a space
-    # what happens to single arguments with a space?
     run_cmd = " ".join(options)
 
     run_cmd_escaped = json.dumps(run_cmd)
@@ -998,6 +1001,37 @@ def do_download(conf, options):
     print('Successfully Downloaded "%s" into "%s"' % (src_name, dest_path))
     sys.exit(0)
 
+# parse duration string in the form of: xxhyym
+# returns number of minutes, or
+#   0 on parse error
+def parse_timestr(ts):
+    minutes = 0
+    if 'h' not in ts and 's' not in ts:
+        return 0
+
+    if 'h' in ts:
+        hours, rest = ts.split('h', 1)
+        if not re.match("^[0-9]+$", hours):
+            return 0
+        minutes += int(hours) * 60
+        ts = rest
+
+    if 'm' in ts:
+        mins, rest = ts.split('m', 1)
+        if rest:
+            # 'm', if present, should be last element of string
+            # if something follows 'm', it's an error
+            return 0
+
+        if not re.match("^[0-9]+$", mins):
+            return 0
+        minutes += int(mins)
+
+    if rest:
+        return 0
+
+    return minutes
+
 def do_reserve(conf, options, cmd='reserve'):
     # board is a required first argument
     try:
@@ -1007,7 +1041,18 @@ def do_reserve(conf, options, cmd='reserve'):
         error_out("No board specified for %s operation\n" % cmd + \
                 "Please specify a board from 'lc list boards'.")
 
-    url = conf.API_URL_BASE+"api/v0.2/devices/%s/assign" % board
+    # could set a default number of minutes here, but that should
+    # be server/lab policy
+    minutes = None
+
+    if options:
+        minutes = parse_timestr(options[0])
+        if not minutes:
+            error_out("Invalid duration '%s'" % options[0])
+
+    url = conf.API_URL_BASE+"api/v0.2/devices/%s/assign/" % board
+    if minutes:
+        url += "%s/" % str(minutes)
 
     headers = { "Authorization": "token " + conf.auth_token }
 
@@ -1113,7 +1158,7 @@ def do_status(conf, options):
     else:
         print('Board "%s" is not reserved.' % (board))
 
-    # FIXTHIS - do_status could report other board status data (power, etc.):
+    # FIXTHIS - do_status could report other board status data, like:
     #   board power-on status
     #   whether board is running linux (pingable?)
     #   future reservations for board
