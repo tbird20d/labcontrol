@@ -55,6 +55,7 @@ import re
 import tempfile
 import urllib
 import uuid
+import datetime
 
 # simplejson loads faster than json, use that if available
 try:
@@ -1757,6 +1758,13 @@ def get_object_map(req, obj_type, obj_name):
         log_this(msg)
         return {}
 
+    # this might cause this to get called too often...
+    if obj_type == "board" and obj_map["AssignedTo"] != "nobody":
+        if check_reservation_expiry(req, obj_map):
+            # reload the data, it just changed
+            # note: recursion is ugly
+            return get_object_map(req, obj_type, obj_name)
+
     return obj_map
 
 # return python data structure from json file
@@ -1773,6 +1781,13 @@ def get_api_object_map(req, obj_type, obj_name):
 
         req.send_api_response_msg(RSLT_FAIL, msg)
         return {}
+
+    # this might cause this to get called too often...
+    if obj_type == "board" and obj_map["AssignedTo"] != "nobody":
+        if check_reservation_expiry(req, obj_map):
+            # reload the data, it just changed
+            # note: recursion is ugly
+            return get_object_map(req, obj_type, obj_name)
 
     return obj_map
 
@@ -1811,6 +1826,7 @@ def get_connected_resource(req, board_map, resource_type):
 def return_api_object_data(req, obj_type, obj_name):
     # do default action for an object - return json file data (as a string)
     data = get_api_object_map(req, obj_type, obj_name)
+
     if not data:
         return
 
@@ -1991,7 +2007,49 @@ def do_board_power_operation(req, board, board_map, rest):
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
+# if a reservation has expired, clear it now
+# if reservation expired, return True
+def check_reservation_expiry(req, board_map):
+    end_time_str = board_map.get("end_time", "unknown")
+
+    dlog_this("in check_reservation_expiry for board %s, end_time=%s" % (board_map["name"], end_time_str))
+
+    if end_time_str in ["never", "unknown", "0-0-0_0:0:0"]:
+        return False
+
+    try:
+        end_time = datetime.datetime.strptime(end_time_str, "%Y-%m-%d_%H:%M:%S")
+    except ValueError:
+        log_this("in check_reservation_expiry: Invalid end time '%s' for board %s" % (end_time_str, board_map["name"]))
+        return False
+
+    now = datetime.datetime.now()
+    if now > end_time:
+        log_this("Expiring (at %s) reservation by %s on board %s, which ended %s" % (now, board_map["AssignedTo"], board_map["name"], end_time_str))
+        msg = clear_reservation(req, board_map)
+        if msg:
+            log_this("in check_reservation_expiry: Error: %s trying to clear reservation" % msg)
+            return False
+        return True
+
+    return False
+
+
+# returns a message in case of error
+def clear_reservation(req, board_map):
+    board_map["AssignedTo"] = "nobody"
+    board_map["start_time"] = "0-0-0_0:0:0"
+    board_map["end_time"] = "0-0-0_0:0:0"
+
+    # save data back to json file
+    msg = save_object_data(req, "board", board_map["name"], board_map)
+    return msg
+
 def do_board_assign(req, board, board_map, rest):
+    if check_reservation_expiry(req, board_map):
+        # reload the board_map; the reservation changed
+        board_map = get_object_map(req, "board", board)
+
     duration = ""
     if rest:
         try:
@@ -2022,8 +2080,6 @@ def do_board_assign(req, board, board_map, rest):
         return
 
     if user and user != "nobody":
-        import datetime
-
         board_map["AssignedTo"] = user
 
         start_time = datetime.datetime.now()
@@ -2055,7 +2111,13 @@ def do_board_assign(req, board, board_map, rest):
 def do_board_release(req, board, board_map, rest):
     # get current user, and remove reservation for board
     user = req.get_user()
+
+    if check_reservation_expiry(req, board_map):
+        # reload the board_map; the reservation changed
+        board_map = get_object_map(req, "board", board)
+
     assigned_to = board_map.get("AssignedTo", "nobody")
+
     if assigned_to == "nobody":
         msg = "Device is already free and available for allocation."
         req.send_api_response_msg(RSLT_FAIL, msg)
@@ -2076,12 +2138,7 @@ def do_board_release(req, board, board_map, rest):
             req.send_api_response_msg(RSLT_FAIL, msg)
             return
 
-    board_map["AssignedTo"] = "nobody"
-    board_map["start_time"] = "0-0-0_0:0:0"
-    board_map["end_time"] = "0-0-0_0:0:0"
-
-    # save data back to json file
-    msg = save_object_data(req, "board", board, board_map)
+    msg = clear_reservation(req, board_map)
 
     if msg:
         req.send_api_response_msg(RSLT_FAIL, msg)
