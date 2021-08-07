@@ -2429,7 +2429,7 @@ def do_board_download(req, board, bmap, rest):
 # rest is a list of the rest of the path
 # supported actions are: get_resource, power, assign, release, run
 def return_api_board_action(req, board, action, rest):
-    log_this("rest=%s" % rest)
+    dlog_this("rest=%s" % rest)
     boards = get_object_list(req, "board")
     if board not in boards:
         msg = "Could not find board '%s' registered with server" % board
@@ -3008,14 +3008,14 @@ def do_api(req):
     dlog_this("in do_api")
     # determine api operation from path
     req_path = req.environ.get("PATH_INFO", "")
-    dlog_this("req_path=%s" % req_path)
+    log_this("in do_api: req_path=%s" % req_path)
     path_parts = req_path.split("/")
     # get the path elements after 'api'
     parts = path_parts[path_parts.index("api")+1:]
 
     #req.show_header("in do_api")
     #req.html.append("parts=%s" % parts)
-    log_this("parts=%s" % parts)
+    dlog_this("parts=%s" % parts)
 
     # check API version.  Currently, we only support v0.2
     if parts[0] == "v0.2":
