@@ -1006,7 +1006,7 @@ def do_download(conf, options):
 #   0 on parse error
 def parse_timestr(ts):
     minutes = 0
-    if 'h' not in ts and 's' not in ts:
+    if ('h' not in ts) and ('m' not in ts):
         return 0
 
     if 'h' in ts:
@@ -1153,8 +1153,14 @@ def do_status(conf, options):
 
     # show who is currently using board
     assigned_to = resp_data.get("AssignedTo", "nobody")
+    end_time = resp_data.get("start_time", "unknown")
+    if end_time != "unknown":
+        end_str = ", ending %s" % end_time
+    else:
+        end_str = ""
+
     if assigned_to != "nobody":
-        print('Board "%s" is assigned to user "%s".' % (board, assigned_to))
+        print('Board "%s" is assigned to user "%s"%s.' % (board, assigned_to, end_str))
     else:
         print('Board "%s" is not reserved.' % (board))
 
