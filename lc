@@ -1153,7 +1153,7 @@ def do_status(conf, options):
 
     # show who is currently using board
     assigned_to = resp_data.get("AssignedTo", "nobody")
-    end_time = resp_data.get("start_time", "unknown")
+    end_time = resp_data.get("end_time", "unknown")
     if end_time != "unknown":
         end_str = ", ending %s" % end_time
     else:
