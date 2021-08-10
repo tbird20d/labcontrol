@@ -12,11 +12,7 @@
 # Author: Tim Bird  <tim.bird (at) sony.com>
 #
 # To Do:
-#  - add support for upload
-#  - add support for download
 #  - add support for "live" run command
-#  + make lc work with ebf server
-#  + make ebf work with lc server
 #
 # Deferred:
 #
@@ -193,7 +189,7 @@ a message will be provided.
 "get-resource": ("Get a resource associated with a board.",
     """Usage: lc {board} get-resource {resource_type} [{feature-str}]
   Get a resource associated with a board.  The resource type can
-  be one of: "power-measurement","serial".
+  be one of: "power-measurement","serial","camera".
 
   The resource can then be to perform an action related to the board.
 
@@ -262,6 +258,31 @@ ex: token=$(lc uart10 serial start)
     lc uart10 serial get-data $token >power-log.txt
     lc uart10 serial delete $token
     cat testfile | lc uart10 serial put-data
+"""),
+
+"camera": ("Perform a camera operation using a resource.",
+    """Usage: lc <resource> camera {operation}
+  Perform a camera operation on a board.
+
+  Operations:
+    capture          Capture a still image, using the indicated resource.
+                     lc outputs the URL reference to the image file.
+    start [{secs}]   Start capturing (recording) video, using the indicated
+                     resource.  lc will output a string which is a token
+                     that can be used to control this instance of video
+                     recording (that is, to stop, get or delete
+                     the video recording).
+    stop <token>     Stop the video recording.
+    get-ref <token>  Return a URL reference to the video recording.
+    delete <token>   Delete the video recording on the server.
+
+ex1: url=$(lc logitech camera capture)
+     curl $url -o image_filename
+
+ex2: token=$(lc logitech camera start 10)
+     url=$(lc logitech camera get-ref $token)
+     curl $url -o my_video_recording
+     lc logitech camera delete $token
 """),
 
 "run": ("Run a command on a board",
@@ -1471,6 +1492,114 @@ def do_serial(conf, options, cmd):
     # but be thorough in error handling
     error_out("Invalid operation '%s' for serial command" % operation)
 
+# this is almost verbatim from do_serial - should try
+# to find a way to coalesce these.
+def do_camera(conf, options, cmd):
+    # resource is a required first argument
+    try:
+        resource = options[0]
+        del options[0]
+    except:
+        error_out("No resource specified for camera operation\n" + \
+                "Please specify a resource associated with this board\n" + \
+                "try 'lc list resources' or 'lc {board} get-resource camera'.")
+
+    # figure out what camera operation we're performing
+    # should be one of 'capture', 'start', 'stop', 'get-ref', 'delete'
+    try:
+        operation = options[0].lower()
+        del options[0]
+    except:
+        error_out("No camera operation specified.\n" + \
+                "Please specify one of 'capture', 'start', 'stop', 'get-ref', or 'delete'.")
+
+    if operation not in ["capture", "start", "stop", "get-ref", "delete"]:
+        error_out("Invalid camera operation specified.\n" + \
+                "Please specify one of 'capture, 'start', 'stop', 'get-ref', or 'delete'.")
+
+
+    url_op  = operation
+    if url_op == "start":
+        url_op = "start-capture"
+    elif url_op == "stop":
+        url_op = "stop-capture"
+
+    url = conf.API_URL_BASE+"api/v0.2/resources/%s/camera/%s" % (resource, url_op)
+    headers = { "Authorization": "token " + conf.auth_token }
+
+    if operation in ["stop", "get-ref", "delete"]:
+        try:
+            token = options[0]
+            del options[0]
+        except:
+            error_out("No token provided for '%s' operation.\n" % operation)
+        url += "/%s" % token
+        resp = requests.get(url, headers=headers)
+    elif operation == "start":
+        # get optional duration
+        try:
+            duration = options[0]
+            del options[0]
+            url += "/%s" % duration
+        except IndexError:
+            pass
+
+        resp = requests.post(url, headers=headers)
+    else:
+        resp = requests.get(url, headers=headers)
+
+    if resp.status_code != 200:
+        error_out("Cannot perform camera %s operation on server" % operation )
+
+    resp_data = resp.json()
+
+    try:
+        result = resp_data["result"]
+    except:
+        error_out("Malformed response from server. Missing 'result'. resp=%s" % resp_data)
+
+    if result != RSLT_OK:
+        # print error
+        try:
+            reason = resp_data["message"]
+        except:
+            reason = "for unknown reasons"
+        error_out("Could not do operation 'camera %s'. From server:\n %s" % (operation, reason))
+
+    # operation was performed, result was "success"
+
+    # report status depending on operation
+    if operation == "start":
+        # output token to user
+        try:
+            token = resp_data["data"]
+        except:
+            error_out("Missing data capture token from server.")
+
+        print(token)
+        return
+
+    if operation == "delete":
+        print("Video recording was deleted from server.")
+        return
+
+    if operation == "stop":
+        print("Video recording was stopped.")
+        return
+
+    if operation in ["get-ref", "capture"]:
+        try:
+            url_path = resp_data["data"]
+        except:
+            error_out("Missing URL for captured data from server.")
+
+        print(url_path)
+        return
+
+    # this seems unlikely, given the checks above
+    # but be thorough in error handling
+    error_out("Invalid operation '%s' for camera command" % operation)
+
 
 def main():
     global verbose
@@ -1615,6 +1744,10 @@ def main():
 
     if command == "set-config":
         do_set_config(conf, options, command)
+        sys.exit(0)
+
+    if command in ["camera"]:
+        do_camera(conf, options, command)
         sys.exit(0)
 
     if command == "run":
