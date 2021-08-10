@@ -104,6 +104,7 @@ class config_class:
         else:
             self.url_base = "/lcserver.py"
 
+        self.url_prefix = "http://localhost/"
         self.files_url_base = "/lc-data"
         self.lab_name = "mylab"
 
@@ -1862,6 +1863,7 @@ def exec_command(req, board_map, resource_map, res_cmd):
 
     icmd_str = get_interpolated_str(cmd_str, board_map, resource_map)
     rcode, output = lc_getstatusoutput(req, icmd_str)
+    dlog_this("exec_command: output=%s" % output)
     if rcode:
         msg = "Result of %s operation on resource %s = %d" % (res_cmd, resource_map["name"], rcode)
         msg += "command output='%s'" % output
@@ -1903,7 +1905,7 @@ def do_board_get_resource(req, board, board_map, rest):
     req.send_api_response(RSLT_OK, { "data": resource })
     return
 
-def do_camera_operation(req, board, board_map, rest):
+def do_board_camera_operation(req, board, board_map, rest):
     cam_map = get_connected_resource(req, board_map, "camera")
     if not cam_map:
         msg = "No camera resource found for board %s" % board
@@ -1929,7 +1931,7 @@ def do_camera_operation(req, board, board_map, rest):
         # have message include link to image
         # FIXTHIS - this returns a relative URL path, not a full path
         file_link = req.config.files_url_base + "/files/" + filename
-        msg = 'File is available at: <a href="%s">%s</a>' % (file_link, file_link)
+        msg = file_link
         # create symlink lc-data/files/{board}-last-camera-image.jpeg
         sympath = req.config.files_dir + "/%s-last-camera-image.jpeg" % board
         dlog_this("making symlink: filename=%s, sympath=%s" % (filename, sympath))
@@ -2471,7 +2473,7 @@ def return_api_board_action(req, board, action, rest):
         return
 
     elif action == "camera":
-        do_camera_operation(req, board, board_map, rest)
+        do_board_camera_operation(req, board, board_map, rest)
         return
 
     msg = "action '%s' not supported (rest='%s')" % (action, rest)
@@ -2479,6 +2481,7 @@ def return_api_board_action(req, board, action, rest):
 
 
 CAPTURE_LOG_FILENAME_FMT="/tmp/capture-log-%s.txt"
+VIDEO_LOG_FILENAME_FMT="/tmp/%s-video.mp4"
 capture_dir="/tmp"
 capture_prefix="capture-log-"
 capture_suffix=".txt"
@@ -2490,13 +2493,21 @@ data_suffix=".data"
 
 # return pid of command
 # only execute a single-line command, for now
-def start_command(cmd):
+def start_command(req, cmd):
     from subprocess import Popen, PIPE, STDOUT
-
 
     exec_args = shlex.split(cmd)
 
     # FIXTHIS - handle multi-line commands in start_command()
+
+    # if program filename is not a path, look for it in the 'utils' dir
+    program_name = exec_args[0]
+    if "/" not in program_name:
+        utils_dir = os.path.abspath(req.config.base_dir + "/../utils/")
+        prog_path = utils_dir + "/" + program_name
+        if os.path.isfile(prog_path):
+            # substitute the utils program path for the original program name
+            exec_args[0] = prog_path
 
     try:
         proc = Popen(exec_args, stdin=PIPE, stdout=PIPE, stderr=PIPE, close_fds=True)
@@ -2504,7 +2515,7 @@ def start_command(cmd):
         msg = "Can't run command '%s' in exec_command" % cmd
         return (0, msg)
     except OSError as error:
-        msg = error + " trying to execute command '%s'" % cmd
+        msg = str(error) + " trying to execute command '%s'" % cmd
         return (0, msg)
 
     pid = proc.pid
@@ -2631,14 +2642,14 @@ def set_config(req, action, resource_map, config_map, rest):
 # returns token, reason
 # on error, token is None or empty and reason is a string with an error
 # message.  The error message should start with "Error: "
-def start_capture(req, action, resource_map, rest):
+def start_capture(req, res_type, resource_map, rest):
     # look up capture_cmd in resource_map, and call it
     resource = resource_map["name"]
     capture_cmd = resource_map.get("capture_cmd")
 
     log_this("capture_cmd=" + capture_cmd)
 
-    # generate the logfile path, and hand  to the capture_cmd
+    # generate the logfile path, and hand to the capture_cmd
     fd, logpath = tempfile.mkstemp(capture_suffix, capture_prefix, capture_dir)
     os.close(fd)
     os.remove(logpath)
@@ -2659,37 +2670,68 @@ def start_capture(req, action, resource_map, rest):
     # (adding the 'logfile' attribute)
     d = copy.deepcopy(resource_map)
     d["logfile"] = logpath
+    d["output"] = logpath
+
+    if res_type == "camera":
+        if rest:
+            d["duration"] = rest[0]
 
     cmd = capture_cmd % d
     dlog_this("(interpolated) cmd=" + cmd)
 
     # save pid in a file, named with the token used earlier
-    pid, msg = start_command(cmd)
+    pid, msg = start_command(req, cmd)
     if not pid:
         log_this("exec failure: reason=" + msg)
         return ("", msg)
 
     log_this("capture pid=%d" % pid)
     fd = open(pidfile,"w")
-    fd.write(str(pid))
+    fd.write(str(pid) + "\n" + logpath)
     fd.close()
 
     return (token, "")
 
+# returns url_path, reason
+# on error, url_path is None or empty and reason is a string with an error
+# message.  The error message should start with "Error: "
+# on success, url_path has the URL where the data can be found on the server
+def capture(req, res_type, resource_map, rest):
+    # generate a filename for the still image to be captured
+    resource = resource_map["name"]
+    if res_type == "camera":
+        data_type = "image"
+    else:
+        data_type = "data"
+    filename = "%s-%s-%s.jpeg" % (resource, get_timestamp(), data_type)
+    filepath = req.config.files_dir + "/" + filename
+    d = copy.deepcopy(resource_map)
+    d["output"] = filepath
+
+    # FIXTHIS - does 'capture' operation need race protection here?
+    (result, msg) = exec_command(req, {}, d, data_type + "_capture")
+    if result == RSLT_FAIL:
+        req.send_api_response_msg(result, msg)
+        return
+
+    data = req.config.url_prefix + req.config.files_url_base + "/files/" + filename
+
+    return (data, "")
+
 # sends reason on failure
-def stop_capture(req, action, resource_map, token, rest):
+def stop_capture(req, res_type, resource_map, token, rest):
     resource = resource_map["name"]
 
     pidfile = CAPTURE_PID_FILENAME_FMT % token
 
     if not os.path.exists(pidfile):
-        return "Cannot find executing capture for %s for resource '%s'" % (action, resource)
+        return "Cannot find pidfile to stop capture for token '%s'" % token
 
     # Could support optional stop_cmd execution here
     # but let's wait on that.
     try:
         fd = open(pidfile, "r")
-        pid = int(fd.read().strip())
+        pid = int(fd.read().split('\n')[0].strip())
         fd.close()
     except IOError:
         pid = None
@@ -2713,7 +2755,7 @@ def stop_capture(req, action, resource_map, token, rest):
 # data is empty on failure, and reason is a string with error message
 # otherwise, sends data from capture.  Captured data may be transformed
 # from its original format, but in all cases should be sent as json.
-def get_captured_data(req, action, resource_map, token, rest):
+def get_captured_data(req, res_type, resource_map, token, rest):
     resource = resource_map["name"]
 
     logfile = CAPTURE_LOG_FILENAME_FMT % token
@@ -2749,17 +2791,46 @@ def get_captured_data(req, action, resource_map, token, rest):
 
     return (log_data, "")
 
+# returns url_path, reason
+# url_path is empty on failure, and reason is a string with error message
+# otherwise, url_path has a location where the data can be downloaded
+# from the server.
+def get_captured_data_ref(req, res_type, resource_map, token, rest):
+    resource = resource_map["name"]
+
+    logfile = CAPTURE_LOG_FILENAME_FMT % token
+    if res_type == "camera":
+        logfile = VIDEO_LOG_FILENAME_FMT % token
+
+    if not os.path.exists(logfile):
+        return (None, "Cannot find capture log for %s token %s for resource '%s'" % (res_type, token, resource))
+
+    try:
+        fd = open(logfile, "r")
+        log_data = fd.read()
+        fd.close()
+    except IOError:
+        log_data = None
+
+    if not log_data:
+        return (None, "Cannot read capture data for %s for resource '%s'" % (res_type, resource))
+
+    return (log_data, "")
+
 # returns reason on failure, "" on success
 def delete_capture(req, res_type, resource_map, token, rest):
     resource = resource_map["name"]
 
     logfile = CAPTURE_LOG_FILENAME_FMT % token
+    if res_type == "camera":
+        logfile = VIDEO_LOG_FILENAME_FMT % token
+
     if not os.path.exists(logfile):
         return "Cannot delete captured data for resource '%s'" % resource
     os.remove(logfile)
     return ""
 
-def put_data(req, action, resource_map, rest):
+def put_data(req, res_type, resource_map, rest):
     resource = resource_map["name"]
     put_cmd = resource_map.get("put_cmd", "")
     if not put_cmd:
@@ -2791,7 +2862,7 @@ def put_data(req, action, resource_map, rest):
 
 
 # rest is a list of the rest of the path
-# support actions are: get_resource, power
+# support res_types are: power-measurement, serial, camera
 def return_api_resource_action(req, resource, res_type, rest):
     resources = get_object_list(req, "resource")
     if resource not in resources:
@@ -2808,7 +2879,7 @@ def return_api_resource_action(req, resource, res_type, rest):
     operation = rest[0]
     del(rest[0])
 
-    if res_type == "serial" and operation == "set-config":
+    if res_type in ["serial", "camera"] and operation == "set-config":
         config_data = req.form.value
         log_this("config_data=%s" % config_data)
 
@@ -2822,8 +2893,8 @@ def return_api_resource_action(req, resource, res_type, rest):
             req.send_api_response(RSLT_OK)
         return
 
-    if res_type in ["power-measurement", "serial"]:
-        if operation in ["stop-capture", "get-data", "delete"]:
+    if res_type in ["power-measurement", "serial", "camera"]:
+        if operation in ["stop-capture", "get-data", "get-ref", "delete"]:
             try:
                 token = rest[0]
             except IndexError:
@@ -2832,11 +2903,19 @@ def return_api_resource_action(req, resource, res_type, rest):
                 return
 
         if operation == "start-capture":
-            token, reason = start_capture(req, res_type, resource_map, rest[1:])
+            dlog_this("rest=%s" % rest)
+            token, reason = start_capture(req, res_type, resource_map, rest)
             if not token:
                 req.send_api_response_msg(RSLT_FAIL, reason)
                 return
             req.send_api_response(RSLT_OK, { "data": token } )
+            return
+        elif operation == "capture":
+            data, reason = capture(req, res_type, resource_map, rest[1:])
+            if not data:
+                req.send_api_response_msg(RSLT_FAIL, reason)
+                return
+            req.send_api_response(RSLT_OK, { "data": data } )
             return
         elif operation == "stop-capture":
             reason = stop_capture(req, res_type, resource_map, token, rest[2:])
@@ -2847,6 +2926,13 @@ def return_api_resource_action(req, resource, res_type, rest):
             return
         elif operation == "get-data":
             data, reason = get_captured_data(req, res_type, resource_map, token, rest[2:])
+            if reason:
+                req.send_api_response_msg(RSLT_FAIL, reason)
+                return
+            req.send_api_response(RSLT_OK, { "data": data } )
+            return
+        elif operation == "get-ref":
+            data, reason = get_captured_data_ref(req, res_type, resource_map, token, rest[2:])
             if reason:
                 req.send_api_response_msg(RSLT_FAIL, reason)
                 return
@@ -3092,7 +3178,7 @@ def do_api(req):
             else:
                 res_type = parts[2]
                 rest = parts[3:]
-                if res_type in ["power-measurement", "serial", "canbus"]:
+                if res_type in ["power-measurement", "serial", "camera", "canbus"]:
                     return_api_resource_action(req, resource, res_type, rest)
                     return
 
