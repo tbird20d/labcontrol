@@ -2724,8 +2724,7 @@ def capture(req, res_type, resource_map, rest):
     # FIXTHIS - does 'capture' operation need race protection here?
     (result, msg) = exec_command(req, {}, d, data_type + "_capture")
     if result == RSLT_FAIL:
-        req.send_api_response_msg(result, msg)
-        return
+        return ("", msg)
 
     url_path = req.config.url_prefix + req.config.files_url_base + "/files/" + filename
 
