@@ -122,6 +122,7 @@ class config_class:
             self.base_dir = "/home/tbird/work/labcontrol/lc-data"
 
         self.default_reservation_duration = "forever"
+        self.default_video_recording_duration = "10"
 
         # #### this is the end of the defaults section ####
         # settings after this will not be overridden by the config file
@@ -2480,12 +2481,11 @@ def return_api_board_action(req, board, action, rest):
     req.send_api_response_msg(RSLT_FAIL, msg)
 
 
-CAPTURE_LOG_FILENAME_FMT="/tmp/capture-log-%s.txt"
-VIDEO_LOG_FILENAME_FMT="/tmp/%s-video.mp4"
-capture_dir="/tmp"
-capture_prefix="capture-log-"
-capture_suffix=".txt"
-CAPTURE_PID_FILENAME_FMT="/tmp/capture-%s.pid"
+# these format strings should be
+# be interpolated with (resource, token, extension)
+CAPTURE_FILENAME_FMT="%s-capture-%s%s"
+VIDEO_FILENAME_FMT="%s-video-%s%s"
+CAPTURE_PID_FILENAME_FMT="/tmp/capture-%s-%s.pid"
 
 data_dir="/tmp"
 data_prefix="data-file-"
@@ -2638,6 +2638,23 @@ def set_config(req, action, resource_map, config_map, rest):
 
     return None
 
+# returns a filename appropriate for this type of captured data
+def get_capture_filepath(req, res_type, res_map, token):
+    # could put files into different directories, based on resource or type
+    # but defer this feature for later
+    cdir = req.config.files_dir + "/"
+
+    if res_type == "camera":
+        try:
+            ext = resource_map["video_filename_extension"]
+        except:
+            log_this("Missing video_filename_extension in definition of resource '%s'" % res_map["name"])
+            ext = ".mp4"
+
+        return cdir + VIDEO_FILENAME_FMT % (res_map["name"], token, ext)
+    else:
+        return cdir + CAPTURE_FILENAME_FMT % (res_map["name"], token, ".txt")
+
 
 # returns token, reason
 # on error, token is None or empty and reason is a string with an error
@@ -2649,17 +2666,11 @@ def start_capture(req, res_type, resource_map, rest):
 
     log_this("capture_cmd=" + capture_cmd)
 
-    # generate the logfile path, and hand to the capture_cmd
-    fd, logpath = tempfile.mkstemp(capture_suffix, capture_prefix, capture_dir)
-    os.close(fd)
-    os.remove(logpath)
-    filename = os.path.basename(logpath)
+    token = get_timestamp()
 
-    # get token from section of filename created by mkstemp
-    # this should be a random string
-    token = filename[len(capture_prefix):-len(capture_suffix)]
+    pidfile = CAPTURE_PID_FILENAME_FMT % (resource, token)
 
-    pidfile = CAPTURE_PID_FILENAME_FMT % token
+    capture_file = get_capture_filepath(req, res_type, resource_map, token)
 
     if os.path.exists(pidfile):
         # FIXTHIS - in start_capture(), check if process is still running
@@ -2669,12 +2680,14 @@ def start_capture(req, res_type, resource_map, rest):
     # do string interpolation from the data in the resource map
     # (adding the 'logfile' attribute)
     d = copy.deepcopy(resource_map)
-    d["logfile"] = logpath
-    d["output"] = logpath
+    d["logfile"] = capture_file
+    d["output"] = capture_file
 
     if res_type == "camera":
         if rest:
             d["duration"] = rest[0]
+        else:
+            d["duration"] = req.config.default_video_recording_duration
 
     cmd = capture_cmd % d
     dlog_this("(interpolated) cmd=" + cmd)
@@ -2687,7 +2700,7 @@ def start_capture(req, res_type, resource_map, rest):
 
     log_this("capture pid=%d" % pid)
     fd = open(pidfile,"w")
-    fd.write(str(pid) + "\n" + logpath)
+    fd.write(str(pid) + "\n" + capture_file)
     fd.close()
 
     return (token, "")
@@ -2714,21 +2727,22 @@ def capture(req, res_type, resource_map, rest):
         req.send_api_response_msg(result, msg)
         return
 
-    data = req.config.url_prefix + req.config.files_url_base + "/files/" + filename
+    url_path = req.config.url_prefix + req.config.files_url_base + "/files/" + filename
 
-    return (data, "")
+    return (url_path, "")
 
 # sends reason on failure
 def stop_capture(req, res_type, resource_map, token, rest):
     resource = resource_map["name"]
 
-    pidfile = CAPTURE_PID_FILENAME_FMT % token
+    pidfile = CAPTURE_PID_FILENAME_FMT % (resource, token)
 
     if not os.path.exists(pidfile):
         return "Cannot find pidfile to stop capture for token '%s'" % token
 
     # Could support optional stop_cmd execution here
     # but let's wait on that.
+
     try:
         fd = open(pidfile, "r")
         pid = int(fd.read().split('\n')[0].strip())
@@ -2758,27 +2772,27 @@ def stop_capture(req, res_type, resource_map, token, rest):
 def get_captured_data(req, res_type, resource_map, token, rest):
     resource = resource_map["name"]
 
-    logfile = CAPTURE_LOG_FILENAME_FMT % token
+    capture_file = get_capture_filepath(req, res_type, resource_map, ".txt")
 
-    if not os.path.exists(logfile):
-        return (None, "Cannot find capture log for %s token %s for resource '%s'" % (action, token, resource))
+    if not os.path.exists(capture_file):
+        return (None, "Cannot find capture file for resource '%s', token %s" % (resource, token))
 
     try:
-        fd = open(logfile, "r")
-        log_data = fd.read()
+        fd = open(capture_file, "r")
+        capture_data = fd.read()
         fd.close()
     except IOError:
         log_data = None
 
-    if not log_data:
-        return (None, "Cannot read capture data for %s for resource '%s'" % (action, resource))
+    if not capture_data:
+        return (None, "Cannot read capture data for resource '%s', token %s" % (resource, token))
 
     # convert to json data
     # FIXTHIS - should not use hardcoded re-format operation here, for sdb data
     # should run a conversion command specified by the resource object
-    if action == "power-measurement":
+    if res_type == "power-measurement":
         jdata = "[\n"
-        for line in log_data.split("\n"):
+        for line in capture_data.split("\n"):
             if not line:
                 continue
             parts = line.split(",")
@@ -2789,7 +2803,7 @@ def get_captured_data(req, res_type, resource_map, token, rest):
         jdata += "]"
         return (jdata, "")
 
-    return (log_data, "")
+    return (capture_data, "")
 
 # returns url_path, reason
 # url_path is empty on failure, and reason is a string with error message
@@ -2798,36 +2812,37 @@ def get_captured_data(req, res_type, resource_map, token, rest):
 def get_captured_data_ref(req, res_type, resource_map, token, rest):
     resource = resource_map["name"]
 
-    logfile = CAPTURE_LOG_FILENAME_FMT % token
-    if res_type == "camera":
-        logfile = VIDEO_LOG_FILENAME_FMT % token
+    # see if capture is still running
+    pidfile = CAPTURE_PID_FILENAME_FMT % (resource, token)
+    if os.path.exists(pidfile):
+        try:
+            fd = open(pidfile, "r")
+            pid = int(fd.read().split('\n')[0].strip())
+            fd.close()
+        except IOError:
+            pid = None
+        import psutil
+        if pid and psutil.pid_exists(pid):
+            return ("", "Capture is still running for resource %s" % resource)
 
-    if not os.path.exists(logfile):
-        return (None, "Cannot find capture log for %s token %s for resource '%s'" % (res_type, token, resource))
+    capture_file = get_capture_filepath(req, res_type, resource_map, token)
 
-    try:
-        fd = open(logfile, "r")
-        log_data = fd.read()
-        fd.close()
-    except IOError:
-        log_data = None
+    if not os.path.exists(capture_file):
+        return (None, "Cannot find capture file for resource '%s', token %s" % (resource, token))
 
-    if not log_data:
-        return (None, "Cannot read capture data for %s for resource '%s'" % (res_type, resource))
-
-    return (log_data, "")
+    filename = os.path.basename(capture_file)
+    url_path = req.config.url_prefix + req.config.files_url_base + "/files/" + filename
+    return (url_path, "")
 
 # returns reason on failure, "" on success
 def delete_capture(req, res_type, resource_map, token, rest):
     resource = resource_map["name"]
 
-    logfile = CAPTURE_LOG_FILENAME_FMT % token
-    if res_type == "camera":
-        logfile = VIDEO_LOG_FILENAME_FMT % token
+    capture_file = get_capture_filepath(req, res_type, resource_map, token)
 
-    if not os.path.exists(logfile):
+    if not os.path.exists(capture_file):
         return "Cannot delete captured data for resource '%s'" % resource
-    os.remove(logfile)
+    os.remove(capture_file)
     return ""
 
 def put_data(req, res_type, resource_map, rest):
