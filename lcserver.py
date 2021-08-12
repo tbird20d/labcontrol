@@ -1887,9 +1887,11 @@ def do_board_get_resource(req, board, board_map, rest):
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
+    resource_to_look_up = res_type.replace("-","_")
+
     if not rest:
         # find resource by resource type
-        resource = board_map.get(res_type, None)
+        resource = board_map.get(resource_to_look_up, None)
         if not resource:
             msg = "Error: no resource type '%s' associated with board '%s'" % \
                      (res_type, board)
@@ -2689,7 +2691,11 @@ def start_capture(req, res_type, resource_map, rest):
         else:
             d["duration"] = req.config.default_video_recording_duration
 
-    cmd = capture_cmd % d
+    try:
+        cmd = capture_cmd % d
+    except KeyError as e:
+        return ("", "Problem interpolating capture_cmd in resource definition of '%s', msg=KeyError: %s" % (resource, str(e)))
+
     dlog_this("(interpolated) cmd=" + cmd)
 
     # save pid in a file, named with the token used earlier
