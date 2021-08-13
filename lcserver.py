@@ -1285,7 +1285,7 @@ def show_board_info(req, bmap):
 <form method="get" action="%s">
 <input type="submit" name="button" value="Capture Video">
 </form>
-""" % image_link)
+""" % video_link)
 
     req.html.append("</ul>")
 
@@ -1395,12 +1395,12 @@ def show_board(req, board):
         if os.path.isfile(req.config.files_dir + "/" + image_filename):
             image_url = req.config.files_url_base + "/files/" + image_filename
 
-    video_link_filename = "/%s-last-camera-video.jpeg" % board
+    video_link_filename = "/%s-last-camera-video.mp4" % board
     video_link_path = req.config.files_dir + video_link_filename
     # note: link contents (target) is just the filename
     video_url = ""
     if os.path.islink(video_link_path):
-        video_filename = os.readlink(video_path)
+        video_filename = os.readlink(video_link_path)
         if os.path.isfile(req.config.files_dir + "/" + video_filename):
             video_url = req.config.files_url_base + "/files/" + video_filename
 
@@ -1416,7 +1416,10 @@ def show_board(req, board):
         if video_url:
             req.html.append("""
 <h2 align="center">Last Camera Video</h2>
-<image src="%s" height="200" width="300">
+<video width="400" controls>
+   <source src="%s" type="video/mp4">
+   Your browser does not support HTML video.
+</video>
 """ % video_url)
 
     req.html.append("</td></tr></table>\n")
@@ -1963,9 +1966,9 @@ def do_board_camera_operation(req, board, board_map, rest):
 
         # have message include link to video
         file_link = req.config.files_url_base + "/files/" + filename
-        msg = 'File is available at: <a href="%s">%s</a>' % (file_link, file_link)
-        # create symlink lc-data/files/{board}-last-camera-video.jpeg
-        sympath = req.config.files_dir + "/%s-last-camera-video.jpeg" % board
+        msg = file_link
+        # create symlink lc-data/files/{board}-last-camera-video.mp4
+        sympath = req.config.files_dir + "/%s-last-camera-video.mp4" % board
         dlog_this("making symlink: filename=%s, sympath=%s" % (filename, sympath))
         try:
             os.unlink(sympath)
@@ -2711,6 +2714,7 @@ def start_capture(req, res_type, resource_map, rest):
 
     return (token, "")
 
+# capture - capture a still image
 # returns url_path, reason
 # on error, url_path is None or empty and reason is a string with an error
 # message.  The error message should start with "Error: "
