@@ -1143,7 +1143,7 @@ def do_release(conf, options):
 # show the status of a board
 def do_status(conf, options):
     board = options[0]
-    del(options[0])
+    del options[0]
 
     url = conf.API_URL_BASE+"api/v0.2/devices/" + board
 
@@ -1495,6 +1495,18 @@ def do_serial(conf, options, cmd):
 # this is almost verbatim from do_serial - should try
 # to find a way to coalesce these.
 def do_camera(conf, options, cmd):
+    # check for output argument.
+    # Conventionally it is last, but allow it to be anywhere.
+    output_file = None
+    if "-o" in options:
+        pos = options.index("-o")
+        try:
+            output_file = options[pos+1]
+            del options[pos+1]
+            del options[pos]
+        except IndexError:
+            error_out("Missing output filename")
+
     # resource is a required first argument
     try:
         resource = options[0]
@@ -1593,7 +1605,14 @@ def do_camera(conf, options, cmd):
         except:
             error_out("Missing URL for captured data from server.")
 
-        print(url_path)
+        if output_file:
+            # download the file, instead of just printing the path
+            resp = requests.get(url_path)
+            with open(output_file, 'wb') as f:
+                f.write(resp.content)
+
+        else:
+            print(url_path)
         return
 
     # this seems unlikely, given the checks above
