@@ -1390,6 +1390,8 @@ function getUptime() {
   var url = "%s";
   var params = "command=uptime&submit_button=Run";
 
+  document.getElementById("uptime").innerHTML = "<i>Getting uptime...</i>";
+
   xhttp.open("POST", url, true);
   xhttp.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
 
