@@ -261,7 +261,7 @@ ex: token=$(lc uart10 serial start)
 """),
 
 "camera": ("Perform a camera operation using a resource.",
-    """Usage: lc <resource> camera {operation}
+    """Usage: lc {resource} camera {operation} [-o {filename}] [-v]
   Perform a camera operation on a board.
 
   Operations:
@@ -276,12 +276,18 @@ ex: token=$(lc uart10 serial start)
     get-ref <token>  Return a URL reference to the video recording.
     delete <token>   Delete the video recording on the server.
 
-ex1: url=$(lc logitech camera capture)
-     curl $url -o image_filename
+  Options:
+    -o {filename}    Download the image or video, and save it to the
+                     indicated file.
+    -v               View the image or video in the default browser.
 
-ex2: token=$(lc logitech camera start 10)
+ex1: url=$(lc logitech camera capture)
+     lc logitech camera capture -o image.jpeg
+     lc logitech camera capture -v
+
+ex2: token=$(lc logitech camera start 60)
      url=$(lc logitech camera get-ref $token)
-     curl $url -o my_video_recording
+     lc logitech camera get-ref $token -o movie.mp4
      lc logitech camera delete $token
 """),
 
@@ -1502,6 +1508,8 @@ def do_serial(conf, options, cmd):
 # this is almost verbatim from do_serial - should try
 # to find a way to coalesce these.
 def do_camera(conf, options, cmd):
+    global verbose
+
     # check for output argument.
     # Conventionally it is last, but allow it to be anywhere.
     output_file = None
@@ -1617,7 +1625,9 @@ def do_camera(conf, options, cmd):
             resp = requests.get(url_path)
             with open(output_file, 'wb') as f:
                 f.write(resp.content)
-
+        elif verbose:
+            import webbrowser
+            webbrowser.open_new(url_path)
         else:
             print(url_path)
         return
