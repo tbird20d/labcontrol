@@ -1353,36 +1353,71 @@ def show_board(req, board):
     req.html.append('<table class="board_table" border="1" style="border-collapse: collapse; padding: 5px" >\n<tr>\n')
     req.html.append('  <td style="padding: 10px">')
     show_board_info(req, bmap)
-    req.html.append('  </td><td style="padding: 5px" align=top>')
+    req.html.append('  </td><td style="padding: 5px" align="top" width="300px">')
 
     # show some more stuff:
     #  uptime of the board
 
-    cmd_str = bmap.get("run_cmd", None)
-    if cmd_str:
-        run_map = { "command": "uptime" }
+    #cmd_str = bmap.get("run_cmd", None)
+    #if cmd_str:
+    #    run_map = { "command": "uptime" }
+    #
+    #    icmd_str = get_interpolated_str(cmd_str, bmap, run_map)
+    #    rcode, output = lc_getstatusoutput(req, icmd_str)
+    #else:
+    #    output = "<i>Board does not have a 'run_cmd' specified</i>"
+    #    rcode = 0
+    #
+    #if rcode:
+    #    output = "<i>problem getting uptime</i>"
+    #req.html.append("<b>Uptime:</b> %s<BR>" % output.strip())
 
-        icmd_str = get_interpolated_str(cmd_str, bmap, run_map)
-        rcode, output = lc_getstatusoutput(req, icmd_str)
-    else:
-        output = "<i>Board does not have a 'run_cmd' specified</i>"
-        rcode = 0
+    # use javascript to get the uptime for the board
+    # here's where the uptime info will land, and the button
+    req.html.append("""<h3>Uptime</h3>
+       <div id="uptime" width="100%" height="60px" margin="5px">
+       Not obtained yet....
+       </div><br>
+       <button type="button" onclick="getUptime()">Get Uptime</button>
+    <br>""" )
 
-    if rcode:
-        output = "<i>problem getting uptime</i>"
-    req.html.append("<b>Uptime:</b> %s<BR>" % output.strip())
+    url = req.config.url_base + os.sep + "api/v0.2/devices/%s/run/" % board
+
+    # here's the script for the button to get the latest uptime
+    req.html.append("""<script>
+function getUptime() {
+  var xhttp = new XMLHttpRequest();
+  var url = "%s";
+  var params = "command=uptime&submit_button=Run";
+
+  xhttp.open("POST", url, true);
+  xhttp.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+
+  xhttp.onreadystatechange = function () {
+    if (this.readyState == 4 && this.status == 200) {
+       uptime = JSON.parse(this.responseText).data.data;
+       document.getElementById("uptime").innerHTML = uptime;
+    }
+  };
+
+  xhttp.send(params);
+}
+</script>
+""" % url)
 
     # show a form to execute a command on the board
-    req.html.append("<p>")
+    req.html.append("<hr><p>")
     req.html.append("Command to execute on board:")
-    url = req.config.url_base + os.sep + "api/v0.2/devices/%s/run/" % board
 
     req.html.append("""<FORM METHOD="POST" ACTION="%s">
     <INPUT type="text" name="command" width=50></input><BR>
-    <INPUT type="hidden" name="device_ip" value="*"></input>
-    <INPUT type="hidden" name="username" value="*"></input>
     <INPUT type="submit" name="submit_button" value="Run"></input>
     </FORM>""" % url)
+
+    req.html.append("</td>")
+
+    # FIXTHIS - use javascript to put run result into a box, instead
+    # of switching to a new page with a form submission
 
     # show last image taken by camera, if there is one
 
@@ -1405,7 +1440,7 @@ def show_board(req, board):
             video_url = req.config.files_url_base + "/files/" + video_filename
 
     if image_url or video_url:
-        req.html.append('</td><td style="padding: 5px" align=top>\n')
+        req.html.append('<td style="padding: 5px" align=top>\n')
         if image_url:
             req.html.append("""
 <h2 align="center">Last Camera Image</h2>
