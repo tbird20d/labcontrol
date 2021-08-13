@@ -841,7 +841,7 @@ def do_run(conf, options):
             reason = resp_data["message"]
         except:
             reason = "for unknown reasons"
-        error_out("Could not do operation 'run %s'. %s" % (operation, reason))
+        error_out("Could not do operation 'run %s'.\n%s" % (run_cmd, reason))
 
     # command was performed, result was "success"
     return_code = resp_data["data"]["return_code"]
