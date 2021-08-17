@@ -440,7 +440,14 @@ class req_class:
 
     # API responses: return python dictionary as json data
     def send_api_response(self, result, data = {}):
+        global debug, debug_api_response
+
         data["result"] = result
+        if result == RSLT_FAIL and debug:
+            msg = ""
+            if "message" in data:
+                msg = ": " + data["message"]
+            dlog_this("Sending failure response%s" % msg)
 
         json_data = json.dumps(data, sort_keys=True, indent=4,
             separators=(',', ': '))
@@ -1397,8 +1404,13 @@ function getUptime() {
 
   xhttp.onreadystatechange = function () {
     if (this.readyState == 4 && this.status == 200) {
-       uptime = JSON.parse(this.responseText).data.data;
-       document.getElementById("uptime").innerHTML = uptime;
+       result = JSON.parse(this.responseText)
+       if (result.result == "fail") {
+          document.getElementById("uptime").innerHTML = "<font color=red>Error: " + result.message + "</font>";
+       } else {
+           uptime = result.data.data;
+           document.getElementById("uptime").innerHTML = uptime;
+       }
     }
   };
 
@@ -2020,7 +2032,7 @@ def do_board_camera_operation(req, board, board_map, rest):
         req.send_api_response_msg(result, msg)
     else:
         msg = "camera action '%s' not supported" % action
-        req.send_api_resopnse_msg(RSLT_FAIL, msg)
+        req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
 def do_board_power_operation(req, board, board_map, rest):
