@@ -2256,6 +2256,117 @@ def do_board_run(req, board, board_map, rest):
     req.send_api_response(RSLT_OK, { "data": data } )
     return
 
+# this is experimental code for a better 'run' operation
+# stream the data back the client, interleaving stdout and stderr
+# also encode the final rcode in the stream
+# markers are:
+#
+# marker_err = b"&now^for#std%err"
+# marker_out = b"&now^for#std%out"
+# marker_rcode = b"&now^for#rcode%"
+# rcode marker must be followed by an exactly 3-character string representing
+# the return code of the executed process (0-255)
+
+def do_board_run2(req, board, board_map, rest):
+    # check that user has board reserved
+    user = req.get_user()
+    assigned_to = board_map.get("AssignedTo", "nobody")
+
+    # FIXTHIS - need to add authentication token to run2 request from lc
+    dlog_this("TRB: user=%s" % user)
+
+    # FIXTHIS - remove this check for now
+    #if user != assigned_to:
+    #    msg = "Device is not TRB assigned to you. It is assigned to '%s'.\nCannot run command." % assigned_to
+    #    req.send_api_response_msg(RSLT_FAIL, msg)
+    #    return
+
+    # This seems optimistic - maybe add some error handling here
+    run_data = req.form.value
+    dlog_this("run_data=%s" % run_data)
+    try:
+        command_to_run = json.loads(run_data).get("command", "")
+    except TypeError:
+        command_to_run = req.form.getfirst("command", "")
+
+    dlog_this("command_to_run=%s" % command_to_run)
+    if not command_to_run:
+        msg = "Cannot parse 'command' from form data (or it was empty)"
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    cmd_str = board_map.get("run_cmd", None)
+
+    if not cmd_str:
+        msg = "Device '%s' is not configured to run commands" % board
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
+    run_map = { "command": command_to_run }
+    cmd_str = get_interpolated_str(cmd_str, board_map, run_map)
+
+    log_this("About to run_command '%s' on board %s" % (cmd_str, board_map["name"]))
+
+    # HERE is where things diverge from do_board_run()
+    #rcode, output, msg = run_command(req, cmd_str)
+    from subprocess import Popen, PIPE, STDOUT
+
+    exec_args = shlex.split(cmd_str)
+
+    marker_err = b"&now^for#std%err"
+    marker_out = b"&now^for#std%out"
+    marker_rcode = b"&now^for#rcode%"
+
+    output = ""
+
+    # FIXTHIS - add more stuff here
+
+    try:
+        proc = Popen(exec_args, stdin=PIPE, stdout=PIPE, stderr=PIPE, close_fds=True, universal_newlines=True, bufsize=1)
+    except subprocess.CalledProcessError as e:
+        msg = "Can't run command '%s' in exec_command" % cmd
+        req.send_api_response_msg(RSLT_FAIL, msg)
+    except OSError as error:
+        msg = error + " trying to execute command '%s'" % cmd
+        req.send_api_response_msg(RSLT_FAIL, msg)
+
+    # don't allow command to run for more than 24 hours
+    timer = threading.Timer(60.0*60.0*24, run_timeout, [proc])
+    timer.start()
+
+    pid = proc.pid
+
+    # Binary data needs to be sent directly
+    sys.stdout.write("Content-type: text/plain; charset=utf-8\n\n")
+
+    # FIXTHIS - read stdout and stderr from proc, and send as we get it
+    try:
+        output, errs = proc.communicate()
+    except:
+        proc.kill()
+        output, errs = proc.communicate()
+
+    timer.cancel()
+
+    # should check req.is_cgi here.  this will need to be different for wsgi
+    # FIXTHIS - send back test data
+    sys.stdout.write("Here is some test data\n")
+    sys.stdout.write("this should be stdout\n")
+    sys.stdout.write(marker_err + "   EEEE - this should be stderr\n")
+    sys.stdout.write(marker_out + "more stdout data\n")
+    sys.stdout.write(marker_err + "   EEEE - more stderr data\n")
+    sys.stdout.write(marker_out + "last line of data\n")
+    sys.stdout.flush()
+
+    rcode = proc.returncode
+
+    # send the data back here
+    rcode_str = "%03d" % rcode
+    log_this("rcode_str='%s'" % rcode_str)
+    sys.stdout.write(marker_rcode+rcode_str)
+    sys.stdout.flush()
+    sys.exit(0)
+
 def parse_multipart(data):
     boundary = data[:256].split("\r\n")[0]
     #dlog_this("boundary='%s'" % boundary)
@@ -2517,6 +2628,10 @@ def return_api_board_action(req, board, action, rest):
 
     elif action == "run":
         do_board_run(req, board, board_map, rest)
+        return
+
+    elif action == "run2":
+        do_board_run2(req, board, board_map, rest)
         return
 
     elif action == "upload":

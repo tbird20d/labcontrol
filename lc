@@ -38,8 +38,7 @@ import requests
 # python 2to3 added the following urllib imports
 # It's not clear that urllib.request or urllib.error are needed
 # They are not used anywhere.  Comment them out for now.
-#import urllib.request, urllib.parse, urllib.error
-import urllib.parse
+import urllib.request, urllib.parse, urllib.error
 
 try:
     import simplejson as json
@@ -858,6 +857,90 @@ def do_run(conf, options):
 
     sys.exit(return_code)
 
+# this is experimental code to receive both stdout and stderr, and the
+# correct return code, in real time, from the server, for a long-running
+# operation.
+# the data is passed as a single stream, with stdout and stderr interleaved
+# by the server, with markers to indicate a shift from one to the other
+# stream.  Buffering may be an issue.
+# the markers are: "&now^for#std%xxx"
+# the marker for the return code is: &now^for#rcode%yyy
+def do_run2(conf, options):
+    # board is a required first argument
+    try:
+        board = options[0]
+        del options[0]
+    except:
+        error_out("No board specified for run operation\n" + \
+                "Please specify a board from the list available with 'lc list boards'.")
+
+    if not options:
+        error_out("No command was specified to run.")
+
+    run_cmd = " ".join(options)
+
+    url = conf.API_URL_BASE+"api/v0.2/devices/%s/run2/" % board
+
+    #headers = { "Authorization": "token " + conf.auth_token,
+    #        "Content-type": "application/json"}
+
+    data = urllib.parse.urlencode({'command': run_cmd })
+    print("data=%s" % data)
+    binary_data = data.encode("utf-8")
+    print("binary_data=%s" % binary_data)
+
+    resp = urllib.request.urlopen(url=url, data=binary_data)
+
+    marker_err = b"&now^for#std%err"
+    marker_out = b"&now^for#std%out"
+    marker_rcode = b"&now^for#rcode%"
+
+    read_size = 1024
+
+    # this code will fail to catch markers that cross the boundaries
+    # of the read_size
+
+    resp_data = resp.read(1024)
+    rcode = "255"
+    in_stdout = True
+    while resp_data:
+        #print("at start of loop, resp_data='%s'" % resp_data.decode("utf-8"))
+        if marker_rcode in resp_data:
+            pos = resp_data.find(marker_rcode)
+            temp_data = resp_data[:pos]
+            rcode = resp_data[pos+len(marker_rcode):pos+len(marker_rcode)+3]
+            rest = resp_data[pos+len(marker_rcode)+3:]
+            resp_data = temp_data + rest
+        # check for transitions
+        if in_stdout:
+            if marker_err in resp_data:
+                pos = resp_data.find(marker_err)
+                stdout_data = resp_data[:pos]
+                sys.stdout.write(stdout_data.decode("utf-8"))
+                resp_data = resp_data[pos+len(marker_err):]
+                in_stdout = False
+                if not resp_data:
+                    resp_data = resp.read(1024)
+                continue
+            else:
+                sys.stdout.write(resp_data.decode("utf-8"))
+                resp_data = resp.read(1024)
+        else:
+            if marker_out in resp_data:
+                pos = resp_data.find(marker_out)
+                stderr_data = resp_data[:pos]
+                sys.stderr.write(stderr_data.decode("utf-8"))
+                resp_data = resp_data[pos+len(marker_out):]
+                in_stdout = True
+                if not resp_data:
+                    resp_data = resp.read(1024)
+                continue
+            else:
+                sys.stderr.write(resp_data.decode("utf-8"))
+                resp_data = resp.read(1024)
+
+    sys.exit(int(rcode))
+
 def do_upload(conf, options):
     # board is a required first argument
     try:
@@ -1668,7 +1751,7 @@ def main():
 
     # parse arguments
     command_list = list(command_help.keys())
-    command_list.extend(["--help", "-h", "pm"])
+    command_list.extend(["--help", "-h", "pm", "run2"])
     options = []
 
     board = ""
@@ -1798,6 +1881,10 @@ def main():
 
     if command == "run":
         do_run(conf, options)
+        # no return here
+
+    if command == "run2":
+        do_run2(conf, options)
         # no return here
 
     if command == "upload":
