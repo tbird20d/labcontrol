@@ -2667,14 +2667,14 @@ def set_config(req, action, resource_map, config_map, rest):
 
     # FIXTHIS - should also add variables from the board_map here
     # this might require a separate lookup to see what board we're operating on
-    cmd_vars = resource_map.copy()
+    new_resource_map = resource_map.copy()
 
     # only copy allowed items from config_map
     for key, value in config_map.items():
         if key in allowed_config_items:
-            cmd_vars[key] = value
+            new_resource_map[key] = value
 
-    icmd_str = get_interpolated_str(config_cmd, cmd_vars)
+    icmd_str = get_interpolated_str(config_cmd, new_resource_map)
     rcode, output = lc_getstatusoutput(req, icmd_str)
     if rcode:
         msg = "Result of set-config operation on resource %s = %d\n" % (resource, rcode)
@@ -2953,10 +2953,11 @@ def return_api_resource_action(req, resource, res_type, rest):
     del(rest[0])
 
     if res_type in ["serial", "camera"] and operation == "set-config":
-        config_data = req.form.value
-        log_this("config_data=%s" % config_data)
+        # convert set-config form data to a simple map
+        config_map = {}
+        for key in req.form.keys():
+            config_map[key] = req.form.getvalue(key)
 
-        config_map = json.loads(config_data)
         dlog_this("config_map=%s" % config_map)
 
         msg = set_config(req, res_type, resource_map, config_map, rest)

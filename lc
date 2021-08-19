@@ -1374,11 +1374,21 @@ def do_set_config(conf, options, cmd):
     headers = { "Authorization": "token " + conf.auth_token }
 
     # read standard input for json data
-    config_data = sys.stdin.read()
+    config_json = sys.stdin.read()
+
+    try:
+        config_data = json.loads(config_json)
+    except:
+        error_out("Malformed json data, was expecting json, but got '%s'" % config_json)
 
     #print("config data=%s" % config_data)
 
     resp = requests.post(url, headers=headers, data=config_data)
+
+    # use this to see what was transmitted to the server
+    #print("TRB: resp.request.headers='%s'" % resp.request.headers)
+    #print("TRB: resp.request.data='%s'" % resp.request.data)
+    #print("TRB: resp.request.body='%s'" % resp.request.body)
 
     if resp.status_code != 200:
         error_out("Cannot perform %s %s operation on server" % (res_type, operation))
@@ -1386,7 +1396,7 @@ def do_set_config(conf, options, cmd):
     try:
         resp_data = resp.json()
     except ValueError:
-        error_out("Could not parse response data as json. data=" + resp.content)
+        error_out("Could not parse response data as json. data=" + str(resp.content))
 
     try:
         result = resp_data["result"]
