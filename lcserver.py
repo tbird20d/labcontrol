@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 # vim: set ts=4 sw=4 et :
 #
 # lcserver.py - LabControl server CGI script
@@ -53,7 +53,8 @@ import time
 import cgi
 import re
 import tempfile
-import urllib
+#import urllib
+import urllib.parse
 import uuid
 import datetime
 
@@ -196,12 +197,12 @@ class page_data_class:
     def __getitem__(self, key):
         # return value for key
         # if the value is callable, return the string returned by calling it
-        if self.data.has_key(key):
+        if key in self.data:
             item = self.data[key]
         elif hasattr(self, key):
             item = getattr(self, key)
         else:
-            if self.data.has_key("default"):
+            if "default" in self.data:
                 item = self.data["default"]
             else:
                 item = self.req.html_error('&lt;missing data value for key "%s"&gt' % key)
@@ -216,8 +217,6 @@ class page_data_class:
     # !! never call this with user-provided data !!
     # this is for internal use only (e.g. see git_commit)
     def external_info(self, cmd, new_dir=None):
-        import commands
-
         saved_cur_dir = os.getcwd()
         try:
             if new_dir:
@@ -376,7 +375,7 @@ class req_class:
 
     def page_filename(self):
         if not hasattr(self, "page_name"):
-            raise AttributeError, "Missing attribute"
+            raise AttributeError("Missing attribute")
         return self.config.page_dir+os.sep+self.page_name
 
     def read_page(self, page_name=""):
@@ -562,7 +561,7 @@ class req_class:
 #    "message": "reason for failure" }
 
 def show_env(req, env, full=0):
-    env_keys = env.keys()
+    env_keys = list(env.keys())
     env_keys.sort()
 
     env_filter=["PATH_INFO", "QUERY_STRING", "REQUEST_METHOD", "SCRIPT_NAME"]
@@ -582,7 +581,7 @@ CGI_VARS=["CONTENT_TYPE", "CONTENT_LENGTH", "DOCUMENT_ROOT",
     "SERVER_NAME", "SERVER_PORT", "SERVER_SOFTWARE"]
 
 def log_env(req, varnames=[]):
-    env_keys = req.environ.keys()
+    env_keys = list(req.environ.keys())
     if varnames:
         env_keys = [item for item in env_keys if item in varnames]
     env_keys.sort()
@@ -798,10 +797,10 @@ def save_file(req, file_field, upload_dir):
     msg = ""
 
     #msg += "req.form=\n"
-    #for k in req.form.keys():
+    #for k in list(req.form.keys()):
     #   msg += "%s: %s\n" % (k, req.form[k])
 
-    if not req.form.has_key(file_field):
+    if not file_field in req.form:
         return F, msg+"Form is missing key %s\n" % file_field, ""
 
     fileitem = req.form[file_field]
@@ -840,7 +839,7 @@ def do_put_object(req, obj_type):
         return
 
     obj_dict = {}
-    for k in req.form.keys():
+    for k in list(req.form.keys()):
         obj_dict[k] = req.form[k].value
 
     # sanity check the submitted data
@@ -928,7 +927,7 @@ def do_update_object(req, obj_type):
     fd.close()
 
     # update fields from (cgi.fieldStorage)
-    for k in req.form.keys():
+    for k in list(req.form.keys()):
         if k in [obj_type, "action"]:
             # skip these
             continue
@@ -1056,7 +1055,7 @@ def old_do_query_requests(req):
         with open(req_data_dir + os.sep + f) as jfd:
             data = json.load(jfd)
             # get a list of valid attributes
-            fields = data.keys()
+            fields = list(data.keys())
 
             # get rid of fields already processed
             fields.remove("host")
@@ -1078,7 +1077,7 @@ def old_do_query_requests(req):
                 drop = False
                 with open(req_data_dir + os.sep + f) as jfd:
                     data = json.load(jfd)
-                    for field, pattern in query_fields.items():
+                    for field, pattern in list(query_fields.items()):
                         if not item_match(pattern, str(data[field])):
                             drop = True
                 if not drop:
@@ -1507,7 +1506,7 @@ def show_resource(req, resource):
     # split them into two sets: attributes and commands
     rattr_keys = []
     rcmd_keys = []
-    for key in rmap.keys():
+    for key in list(rmap.keys()):
         if key.endswith("_cmd"):
             rcmd_keys.append(key)
         else:
@@ -1951,7 +1950,7 @@ def do_board_get_resource(req, board, board_map, rest):
             return
     else:
         # find resource by connected feature
-        feature = urllib.unquote(rest[0])
+        feature = urllib.parse.unquote(rest[0])
         resource, msg = find_resource(req, board, feature)
         if not resource:
             req.send_api_response_msg(RSLT_FAIL, msg)
@@ -2785,7 +2784,7 @@ def set_config(req, action, resource_map, config_map, rest):
     new_resource_map = resource_map.copy()
 
     # only copy allowed items from config_map
-    for key, value in config_map.items():
+    for key, value in list(config_map.items()):
         if key in allowed_config_items:
             new_resource_map[key] = value
 
@@ -2945,7 +2944,7 @@ def stop_capture(req, res_type, resource_map, token, rest):
 def get_captured_data(req, res_type, resource_map, token, rest):
     resource = resource_map["name"]
 
-    capture_file = get_capture_filepath(req, res_type, resource_map, ".txt")
+    capture_file = get_capture_filepath(req, res_type, resource_map, token)
 
     if not os.path.exists(capture_file):
         return (None, "Cannot find capture file for resource '%s', token %s" % (resource, token))
@@ -3070,7 +3069,7 @@ def return_api_resource_action(req, resource, res_type, rest):
     if res_type in ["serial", "camera"] and operation == "set-config":
         # convert set-config form data to a simple map
         config_map = {}
-        for key in req.form.keys():
+        for key in list(req.form.keys()):
             config_map[key] = req.form.getvalue(key)
 
         dlog_this("config_map=%s" % config_map)
