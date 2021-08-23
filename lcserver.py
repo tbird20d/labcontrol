@@ -2659,14 +2659,21 @@ data_dir="/tmp"
 data_prefix="data-file-"
 data_suffix=".data"
 
-# return pid of command
-# only execute a single-line command, for now
-def start_command(req, cmd):
+# returns a tuple with (pid, msg)
+# On success, pid is non-zero and msg is empty.
+# On failure, pid is 0 and msg is non-empty.
+# It puts stdout and stderr into files, using the token as part of the filename
+#
+# This only executes a single-line command, for now
+def start_command(req, token, cmd):
     from subprocess import Popen, PIPE, STDOUT
 
     exec_args = shlex.split(cmd)
 
     # FIXTHIS - handle multi-line commands in start_command()
+
+    capture_stdout = open("/tmp/capture-stdout-" + token, "wb")
+    capture_stderr = open("/tmp/capture-stderr-" + token, "wb")
 
     # if program filename is not a path, look for it in the 'utils' dir
     program_name = exec_args[0]
@@ -2678,7 +2685,7 @@ def start_command(req, cmd):
             exec_args[0] = prog_path
 
     try:
-        proc = Popen(exec_args, stdin=PIPE, stdout=PIPE, stderr=PIPE, close_fds=True)
+        proc = Popen(exec_args, stdin=PIPE, stdout=capture_stdout, stderr=capture_stderr, close_fds=True, start_new_session=True)
     except subprocess.CalledProcessError as e:
         msg = "Can't run command '%s' in exec_command" % cmd
         return (0, msg)
@@ -2687,12 +2694,11 @@ def start_command(req, cmd):
         return (0, msg)
 
     pid = proc.pid
-    return (pid, "OK")
+    return (pid, "")
 
 def run_timeout(proc):
     log_this("run_timeout fired! - killing process %s" % proc.pid)
     proc.kill()
-
 
 # special (lc version of) getstatusouput
 # return rcode, output from getstatusoutput from command
@@ -2864,8 +2870,8 @@ def start_capture(req, res_type, resource_map, rest):
 
     dlog_this("(interpolated) cmd=" + cmd)
 
-    # save pid in a file, named with the token used earlier
-    pid, msg = start_command(req, cmd)
+    # save pid and capture filename in a file, named with the token
+    pid, msg = start_command(req, token, cmd)
     if not pid:
         log_this("exec failure: reason=" + msg)
         return ("", msg)
@@ -2903,7 +2909,9 @@ def capture(req, res_type, resource_map, rest):
 
     return (url_path, "")
 
-# sends reason on failure
+# returns msg with:
+#   msg = empty on success, non-empty on failure
+# msg has the stderr output, if any, of the command on failure
 def stop_capture(req, res_type, resource_map, token, rest):
     resource = resource_map["name"]
 
@@ -2915,6 +2923,12 @@ def stop_capture(req, res_type, resource_map, token, rest):
     # Could support optional stop_cmd execution here
     # but let's wait on that.
 
+    # NOTE: if we're running on a Linux kernel with a version later than
+    # 5.4, we could use pidfd_open and waitid to get the return code for
+    # the process, and check that for an error indication.
+
+    # for now, just return stderr as msg, if it's non-empty
+
     try:
         fd = open(pidfile, "r")
         pid = int(fd.read().split('\n')[0].strip())
@@ -2925,17 +2939,39 @@ def stop_capture(req, res_type, resource_map, token, rest):
     if not pid:
         return "Cannot find in-progress capture for %s for resource '%s'" % (action, resource)
 
+    max_sigterm_retry=10
+
     try:
-        while 1:
+        count = 0
+        while count < max_sigterm_retry:
+            dlog_this("Sending SIGTERM to pid %d" % pid)
             os.kill(pid, signal.SIGTERM)
-            time.sleep(0.1)
+            time.sleep(0.2)
+            count += 1
+        dlog_this("Exceeded max_sigterm_retry count of %d" % max_sigterm_retry)
     except OSError as err:
         err = str(err)
         if err.find("No such process") > 0:
             if os.path.exists(pidfile):
                 os.remove(pidfile)
 
-    return None
+    # check for program error (stderr is non-empty)
+    cout_file = "/tmp/capture-stdout-" + token
+    if os.path.exists(cout_file):
+        dlog_this("Removing capture stdout file %s" % cout_file)
+        os.remove(cout_file)
+
+    cerr_file = "/tmp/capture-stderr-" + token
+    msg = ""
+    if os.path.exists(cerr_file):
+        stderr = open(cerr_file, "r").read()
+        if stderr:
+            msg = "stderr output from capture command: '%s'" % stderr
+            log_this(msg)
+        dlog_this("Removing capture stderr file %s" % cerr_file)
+        os.remove(cerr_file)
+
+    return msg
 
 # returns data, reason
 # data is empty on failure, and reason is a string with error message
