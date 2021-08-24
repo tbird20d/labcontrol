@@ -3,16 +3,15 @@
 # acme-capture.sh - capture data from a probe on an acme board
 #
 # Todo:
-#  - avoid nested SIGTERM calls
-#  - add slot name to on-board-capture.sh, to avoid conflicts
-#    from multiple PM tests at the same time (on different probes)
 #
 
 usage() {
     cat <<USAGE
-Usage: acme-capture.sh -o {logfile}"
+Usage: acme-capture.sh -a {ip_addr} -u {user} -n {probe} -o {logfile}"
 
-Capture timestamp,voltage,current data from an ACME probe
+Capture timestamp,voltage,current data from an ACME probe into
+the indicated logfile.  Output is in CSV format, with measurement
+units of seconds,millivolts,milliamps
 
 Options:
   -h, --help    Show this usage help
@@ -91,16 +90,22 @@ SSH="$SSHPASS ssh $SSH_ARGS ${USER}@${ACME_IP}"
 
 cleanup() {
     echo "Cleaning up"
-    $SSH rm /usr/bin/on-board-capture.sh
-    rm /tmp/on-board-capture.sh
+    $SSH rm /usr/bin/${ON_BOARD_SCRIPT_NAME}
+    rm /tmp/${ON_BOARD_SCRIPT_NAME}
 }
 
 term_handler() {
+    if [ -n "$in_term_handler" ] ; then
+        echo "Nested SIGTERM - slow down the signals, please"
+        return
+    else
+        in_term_handler="true"
+    fi
     echo "Got SIGTERM"
-    echo "Killing on-board-capture.sh, on the board"
+    echo "Killing ${ON_BOARD_SCRIPT_NAME}, on the board"
     # this should result in termination of local ssh command
     # so, there's no need to kill that one
-    $SSH pkill -f on-board-capture.sh
+    $SSH pkill -f ${ON_BOARD_SCRIPT_NAME}
     capturing="false"
 }
 
@@ -108,9 +113,11 @@ trap term_handler SIGTERM
 
 p="$(( $PROBE - 1 ))"
 
-cat >/tmp/on-board-capture.sh <<HERE
+export ON_BOARD_SCRIPT_NAME="on-board-capture-$PROBE.sh"
+
+cat >/tmp/${ON_BOARD_SCRIPT_NAME} <<HERE
 #!/bin/sh
-# on-board-capture.sh
+# ${ON_BOARD_SCRIPT_NAME}
 vfile="/sys/bus/i2c/devices/1-004$p/iio:device0/in_voltage1_raw"
 cfile="/sys/bus/i2c/devices/1-004$p/iio:device0/in_current3_raw"
 pfile="/sys/bus/i2c/devices/1-004$p/iio:device0/in_power2_raw"
@@ -124,14 +131,15 @@ while true ; do
 done
 HERE
 
-chmod a+x /tmp/on-board-capture.sh
+chmod a+x /tmp/${ON_BOARD_SCRIPT_NAME}
 
-$SSH_PASS scp /tmp/on-board-capture.sh ${USER}@${ACME_IP}:/usr/bin
-capturing="true"
+$SSH_PASS scp /tmp/${ON_BOARD_SCRIPT_NAME} ${USER}@${ACME_IP}:/usr/bin >/dev/null
 
 # put this in the background, so we can receive a signal
 # signal is not delivered until after current command finishes
-$SSH on-board-capture.sh >$OUTFILE &
+echo "Starting capture of probe $PROBE on $ACME_IP"
+capturing="true"
+$SSH ${ON_BOARD_SCRIPT_NAME} >$OUTFILE &
 
 # wait around for capture to stop (ie until we get SIGTERM)
 while [ $capturing = "true" ] ; do
