@@ -133,7 +133,7 @@ HERE
 
 chmod a+x /tmp/${ON_BOARD_SCRIPT_NAME}
 
-$SSH_PASS scp /tmp/${ON_BOARD_SCRIPT_NAME} ${USER}@${ACME_IP}:/usr/bin >/dev/null
+$SSH_PASS scp $SSH_ARGS /tmp/${ON_BOARD_SCRIPT_NAME} ${USER}@${ACME_IP}:/usr/bin >/dev/null
 
 # put this in the background, so we can receive a signal
 # signal is not delivered until after current command finishes
