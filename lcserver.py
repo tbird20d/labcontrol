@@ -2230,7 +2230,7 @@ def do_board_run(req, board, board_map, rest):
         return
 
     # This seems optimistic - maybe add some error handling here
-    run_data = req.form.value
+    run_data = req.form.value.decode("utf-8")
     dlog_this("run_data=%s" % run_data)
     try:
         command_to_run = json.loads(run_data).get("command", "")
@@ -2292,12 +2292,12 @@ def do_board_run2(req, board, board_map, rest):
 
     # FIXTHIS - remove this check for now
     #if user != assigned_to:
-    #    msg = "Device is not TRB assigned to you. It is assigned to '%s'.\nCannot run command." % assigned_to
+    #    msg = "Device is not assigned to you. It is assigned to '%s'.\nCannot run command." % assigned_to
     #    req.send_api_response_msg(RSLT_FAIL, msg)
     #    return
 
     # This seems optimistic - maybe add some error handling here
-    run_data = req.form.value
+    run_data = req.form.value.decode("utf-8")
     dlog_this("run_data=%s" % run_data)
     try:
         command_to_run = json.loads(run_data).get("command", "")
@@ -2382,10 +2382,13 @@ def do_board_run2(req, board, board_map, rest):
     sys.stdout.flush()
     sys.exit(0)
 
+# Notes parses the binary data into a dictionary
+# all parts of the data are decoded using 'utf-8' into python str types,
+# with the file data, which is left as binary
 def parse_multipart(data):
-    boundary = data[:256].split("\r\n")[0]
+    boundary = data[:256].split(b"\r\n")[0]
     #dlog_this("boundary='%s'" % boundary)
-    if not boundary.startswith("--"):
+    if not boundary.startswith(b"--"):
         return {}
 
     data_dict = {}
@@ -2393,24 +2396,28 @@ def parse_multipart(data):
     #dlog_this("section_list=%s" % section_list)
     for section in section_list:
         #dlog_this("section='%s'" % section)
-        if not section or section=="--\r\n":
+        if not section or section == b"--\r\n":
             continue
-        if not section.startswith("\r\nContent-Disposition: form-data;"):
-            log_this("unrecognized section in form data: '%s'" % section)
+        if not section.startswith(b"\r\nContent-Disposition: form-data;"):
+            log_this("unrecognized section in form data: '%s'" % section.decode("utf-8"))
             continue
-        key = section.split("name=")[1].split(";")[0].split('\r')[0].replace('"','')
+        key = section.split(b"name=")[1].split(b";")[0].split(b'\r')[0].replace(b'"',b'').decode("utf-8")
         #dlog_this("key=%s" % key)
         try:
-            val_parts = section.split("\r\n")[3:-1]
+            val_parts = section.split(b"\r\n")[3:-1]
         except IndexError:
-            log_this("unrecognized syntax in form data: '%s'" % section)
+            log_this("unrecognized syntax in form data: '%s'" % section.decode("utf-8"))
             continue
         #dlog_this("val_parts=%s" % val_parts)
-        value = "\r\n".join(val_parts)
+        value = b"\r\n".join(val_parts)
         #dlog_this("value='%s'" % value)
-        data_dict[key] = value
         if key=="file":
-            filename = section.split("filename=")[1].split(";")[0].split('\r')[0].replace('"','')
+            data_dict[key] = value
+        else:
+            data_dict[key] = value.decode("utf-8")
+
+        if key=="file":
+            filename = section.split(b"filename=")[1].split(b";")[0].split(b'\r')[0].replace(b'"',b'').decode("utf-8")
             data_dict["filename"] = filename
 
     return data_dict
@@ -2436,11 +2443,12 @@ def do_board_upload(req, board, bmap, rest):
         return
 
     # get data for the upload
-    form_data = req.form.value
-    if "Content-Disposition:" in form_data:
-        form_dict = parse_multipart(form_data)
+    bin_form_data = req.form.value
+    if b"Content-Disposition:" in bin_form_data:
+        form_dict = parse_multipart(bin_form_data)
     else:
         # this probably won't work, but what have I got to lose?
+        log_this("Warning: using form_dict=req.form in do_board_upload()")
         form_dict = req.form
 
     dest_path = form_dict["path"]
@@ -2578,7 +2586,7 @@ def do_board_download(req, board, bmap, rest):
 
     # read file from temp area and write to output
     with open(tar_path, "rb") as fd:
-        data = fd.read()
+        bin_data = fd.read()
 
     # write file as response
     # Content-type: text/html; charset=utf-8
@@ -2598,8 +2606,9 @@ def do_board_download(req, board, bmap, rest):
 
     # output the data directly
     # should check req.is_cgi here.  this will need to be different for wsgi
-    sys.stdout.write("Content-type: text/plain; charset=utf-8\n\n")
-    sys.stdout.write(data)
+    sys.stdout.buffer.write(b"Content-type: text/plain; charset=utf-8\n\n")
+    # write data as binary data # (sys.stdout.write() sends a string)
+    sys.stdout.buffer.write(bin_data)
     sys.stdout.flush()
 
     # clean up staged files and directories
@@ -2761,8 +2770,8 @@ def run_command(req, cmd):
         msg = error + " trying to execute command '%s'" % cmd
         return (0, output, msg)
 
-    # don't allow command to run for more than 60 seconds
-    timer = threading.Timer(60.0, run_timeout, [proc])
+    # don't allow command to run for more than 300 seconds (5 minutes)
+    timer = threading.Timer(300.0, run_timeout, [proc])
     timer.start()
 
     # we may want to have a different interface here, that allows
@@ -3077,11 +3086,11 @@ def put_data(req, res_type, resource_map, rest):
     dlog_this("put_cmd=" + put_cmd)
 
     # put data into a file
-    data = req.form.value
-    log_this("data=%s" % data)
+    bin_data = req.form.value
+    log_this("bin_data=%s" % bin_data.decode("utf-8"))
 
     fd, datapath = tempfile.mkstemp(data_suffix, data_prefix, data_dir)
-    os.write(fd, data)
+    os.write(fd, bin_data)
     os.close(fd)
 
     d = copy.deepcopy(resource_map)
@@ -3362,7 +3371,7 @@ def do_api(req):
     if parts[0] == "token":
         # return auth token for user (on successful authentication)
         #log_this("form.value=%s" % req.form.value)
-        data = json.loads(req.form.value)
+        data = json.loads(req.form.value.decode("utf-8"))
         try:
             #log_this("data=%s" % data)
             user = data["username"]
@@ -3536,12 +3545,14 @@ def handle_request(environ, req):
 
 
 def cgi_main():
+    #dlog_this("os.environ='%s'" % os.environ)
+    #dlog_this("stdin='%s'" % sys.stdin.read())
     # handle json data myself, as the cgi module has a bug with
     # data submitted via the requests module as application/json
     if os.environ.get("CONTENT_TYPE", "") == "application/json":
-        data = sys.stdin.read()
+        bin_data = sys.stdin.buffer.read()
         #dlog_this("incoming json form data='%s'" % data)
-        form = mycgiform_class(data)
+        form = mycgiform_class(bin_data)
     else:
         form = cgi.FieldStorage()
 
