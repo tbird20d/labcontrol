@@ -3014,7 +3014,7 @@ def get_captured_data(req, res_type, resource_map, token, rest):
     # convert to json data
     # FIXTHIS - should not use hardcoded re-format operation here, for sdb data
     # should run a conversion command specified by the resource object
-    if res_type == "power-measurement-json":
+    if res_type == "power-measurement-output-conversion-disabled":
         jdata = "[\n"
         for line in capture_data.split("\n"):
             if not line:
