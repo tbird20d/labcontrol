@@ -94,6 +94,22 @@ VERSION=(0,6,5)
 
 SERVER_CONF_FILENAME="/etc/lcserver.conf"
 
+# stub class for storing incoming POST data of type application/json
+# This works around a bug in the python cgi module handling this type of
+# data.
+# see https://github.com/webpy/webpy/issues/574#issuecomment-549070996
+# and https://bugs.python.org/issue27777
+# Use this instead of cgi.FieldStorage() class
+# Right now, the only attributes used are form.value and form.getfirst()
+class mycgiform_class:
+    def __init__(self, data):
+        self.value = data
+
+    def getfirst(self, attr, default=None):
+        if attr=="action":
+            return "api"
+        return default
+
 # define a class for config vars
 class config_class:
     def __init__(self):
@@ -2998,7 +3014,7 @@ def get_captured_data(req, res_type, resource_map, token, rest):
     # convert to json data
     # FIXTHIS - should not use hardcoded re-format operation here, for sdb data
     # should run a conversion command specified by the resource object
-    if res_type == "power-measurement":
+    if res_type == "power-measurement-json":
         jdata = "[\n"
         for line in capture_data.split("\n"):
             if not line:
@@ -3520,7 +3536,14 @@ def handle_request(environ, req):
 
 
 def cgi_main():
-    form = cgi.FieldStorage()
+    # handle json data myself, as the cgi module has a bug with
+    # data submitted via the requests module as application/json
+    if os.environ.get("CONTENT_TYPE", "") == "application/json":
+        data = sys.stdin.read()
+        #dlog_this("incoming json form data='%s'" % data)
+        form = mycgiform_class(data)
+    else:
+        form = cgi.FieldStorage()
 
     req = req_class(config, form)
     req.is_cgi = True
