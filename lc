@@ -828,7 +828,7 @@ def do_run(conf, options):
 
     resp = requests.post(url, headers=headers, data=jdata)
     if resp.status_code != 200:
-        error_out("Cannot perform 'run' operation on server")
+        error_out("Cannot perform 'run' operation on server, status=%d" % resp.status_code)
 
     #print("resp.content='%s'" % resp.content)
 
@@ -1057,8 +1057,7 @@ def do_download(conf, options):
 
     url = conf.API_URL_BASE+"api/v0.2/devices/%s/download/?compress=true&path=%s&device_ip=*&username=*" % (board, src_path)
 
-    headers = { "Authorization": "token " + conf.auth_token,
-            "Content-type": "application/json"}
+    headers = { "Authorization": "token " + conf.auth_token }
 
     resp = requests.get(url, headers=headers)
 
