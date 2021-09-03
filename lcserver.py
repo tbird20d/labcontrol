@@ -1443,6 +1443,70 @@ function getUptime() {
     <INPUT type="submit" name="submit_button" value="Run"></input>
     </FORM>""" % url)
 
+    # show reservation/release buttons
+
+    reserve_link=req.config.url_base + "/api/v0.2/devices/%s/assign" % board
+    release_link=req.config.url_base + "/api/v0.2/devices/%s/release" % board
+    #req.html.append("</td>")
+    force_link= release_link=req.config.url_base + "/api/v0.2/devices/%s/release/force" % board
+
+    reserve_form_disabled_str = """<FORM METHOD="GET" ACTION="%s">
+        <button type="button" disabled>Reserve Board</button>
+        </FORM>""" % reserve_link
+    release_form_disabled_str = """<FORM METHOD="GET" ACTION="%s">
+        <button type="button" disabled>Release</button>
+        </FORM>""" % release_link
+    force_form_disabled_str = """<FORM METHOD="GET" ACTION="%s">
+        <button type="button" disabled>Force Release!</button>
+        </FORM>""" % force_link
+
+
+    user = req.get_user()
+    log_this("new_user-%s" % user)
+    assigned_to = bmap.get("AssignedTo", "nobody")
+    req.html.append("<hr>")
+    if assigned_to == "nobody":
+        # nobody has it, I can allocate it
+        def_duration = req.config.default_reservation_duration
+        if def_duration == "forever":
+            dur_str = "forever"
+        else:
+            dur_str = "%s minutes" % def_duration
+
+        req.html.append("""Enter time in minutes to reserve the board
+                           example: 30 or 60 or 120 etc..
+                           If the time is not specified, the duration will be
+                           %s""" % dur_str)
+
+        req.html.append("""<FORM METHOD="GET" ACTION="%s">
+        <INPUT type="text" name="duration" width=50></input><BR>
+        <INPUT type="submit" name="submit_button" value="Reserve Board"></input>
+        </FORM>""" % reserve_link)
+        req.html.append(release_form_disabled_str)
+        req.html.append(force_form_disabled_str)
+
+    if assigned_to == user:
+        # I have it, I can release it
+        req.html.append("""Board is currently reserved by %s """ % user)
+        req.html.append(reserve_form_disabled_str)
+        req.html.append("""Press the button to release the board""")
+        req.html.append("""<FORM METHOD="GET" ACTION="%s">
+        <INPUT type="submit" name="submit_button" value="Release"></input>
+        </FORM>""" % release_link)
+        req.html.append(force_form_disabled_str)
+
+    if assigned_to != user and assigned_to != "nobody":
+        # I don't have it, I can force-release it
+        req.html.append("""Board is not assigned to you.
+                           It is assigned to %s""" % assigned_to)
+
+        req.html.append(reserve_form_disabled_str)
+        req.html.append(release_form_disabled_str)
+        req.html.append("Press the button to release the board forcefully")
+        req.html.append("""<FORM METHOD="GET" ACTION="%s">
+        <INPUT type="submit" name="submit_button" value="Force Release!"></input>
+        </FORM>""" % force_link)
+
     req.html.append("</td>")
 
     # FIXTHIS - use javascript to put run result into a box, instead
@@ -2177,7 +2241,9 @@ def do_board_assign(req, board, board_map, rest):
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
-    req.send_api_response(RSLT_OK)
+    msg = "Board %s is assigned to you from %s until %s" % \
+            (board, board_map["start_time"], board_map["end_time"])
+    req.send_api_response_msg(RSLT_OK, msg)
     return
 
 def do_board_release(req, board, board_map, rest):
@@ -2216,7 +2282,8 @@ def do_board_release(req, board, board_map, rest):
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
-    req.send_api_response(RSLT_OK)
+    msg = "Board %s is no longer reserved." % board
+    req.send_api_response_msg(RSLT_OK, msg)
     return
 
 def do_board_run(req, board, board_map, rest):
@@ -2643,6 +2710,10 @@ def return_api_board_action(req, board, action, rest):
         return
 
     elif action == "assign":
+        duration = req.form.getfirst("duration", "")
+        log_this("duration=%s minutes" % duration)
+        if duration:
+            rest = list(duration.strip().split(" "))
         do_board_assign(req, board, board_map, rest)
         return
 
