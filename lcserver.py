@@ -2872,6 +2872,10 @@ def run_command(req, cmd):
 def set_config(req, action, resource_map, config_map, rest):
     msg = ""
 
+    if not config_map:
+        return "No configuration items were provided to set_config operation"
+
+
     resource = resource_map["name"]
     config_cmd = resource_map.get("config_cmd", "")
     if not config_cmd:
