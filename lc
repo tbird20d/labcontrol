@@ -1495,7 +1495,7 @@ def do_set_config(conf, options, cmd):
         error_out("Could not do operation '%s %s'. From server:\n %s" % (res_type, operation, reason))
 
     # operation was performed, result was "success"
-    print("Set_config operation was successful")
+    print("set-config operation was successful")
 
 # this is almost verbatim from do_power_measurement - should try
 # to find a way to coalesce these.
