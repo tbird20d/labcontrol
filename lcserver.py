@@ -1373,12 +1373,20 @@ def show_board(req, board):
     bmap = get_object_map(req, "board", board)
 
     req.html.append('<table class="board_table" border="1" style="border-collapse: collapse; padding: 5px" >\n<tr>\n')
-    req.html.append('  <td style="padding: 10px">')
+    # create message area for board operations
+    # should I do a popup instead?
+    req.html.append("""
+    <td style="padding: 10px" colspan="3">
+       <div id="message" width="100%" height="60px" margin="5px">
+       <i>... Message area ...</i>
+       </div>
+    </td></tr><tr>
+    """)
+    req.html.append('  <td style="padding: 10px" valign="top">')
     show_board_info(req, bmap)
-    req.html.append('  </td><td style="padding: 5px" align="top" width="300px">')
+    req.html.append('  </td><td style="padding: 5px" valign="top" width="300px">')
 
     # show some more stuff:
-    #  uptime of the board
 
     #cmd_str = bmap.get("run_cmd", None)
     #if cmd_str:
@@ -1403,7 +1411,7 @@ def show_board(req, board):
        <button type="button" onclick="getUptime()">Get Uptime</button>
     <br>""" )
 
-    url = req.config.url_base + os.sep + "api/v0.2/devices/%s/run/" % board
+    run_url = req.config.url_base + os.sep + "api/v0.2/devices/%s/run/" % board
 
     # here's the script for the button to get the latest uptime
     req.html.append("""<script>
@@ -1432,7 +1440,7 @@ function getUptime() {
   xhttp.send(params);
 }
 </script>
-""" % url)
+""" % run_url)
 
     # show a form to execute a command on the board
     req.html.append("<hr><p>")
@@ -1441,22 +1449,22 @@ function getUptime() {
     req.html.append("""<FORM METHOD="POST" ACTION="%s">
     <INPUT type="text" name="command" width=50></input><BR>
     <INPUT type="submit" name="submit_button" value="Run"></input>
-    </FORM>""" % url)
+    </FORM>""" % run_url)
 
     # show reservation/release buttons
 
     reserve_link=req.config.url_base + "/api/v0.2/devices/%s/assign" % board
     release_link=req.config.url_base + "/api/v0.2/devices/%s/release" % board
     #req.html.append("</td>")
-    force_link= release_link=req.config.url_base + "/api/v0.2/devices/%s/release/force" % board
+    force_link=req.config.url_base + "/api/v0.2/devices/%s/release/force" % board
 
-    reserve_form_disabled_str = """<FORM METHOD="GET" ACTION="%s">
+    reserve_form_disabled_str = """<FORM METHOD="GET" ACTION="%s" id="ReserveForm">
         <button type="button" disabled>Reserve Board</button>
         </FORM>""" % reserve_link
-    release_form_disabled_str = """<FORM METHOD="GET" ACTION="%s">
+    release_form_disabled_str = """<FORM METHOD="GET" ACTION="%s" id="ReleaseForm">
         <button type="button" disabled>Release</button>
         </FORM>""" % release_link
-    force_form_disabled_str = """<FORM METHOD="GET" ACTION="%s">
+    force_form_disabled_str = """<FORM METHOD="GET" ACTION="%s" id="ForceReleaseForm">
         <button type="button" disabled>Force Release!</button>
         </FORM>""" % force_link
 
@@ -1478,9 +1486,9 @@ function getUptime() {
                            If the time is not specified, the duration will be
                            %s""" % dur_str)
 
-        req.html.append("""<FORM METHOD="GET" ACTION="%s">
+        req.html.append("""<FORM METHOD="GET" ACTION="%s" id="ReserveForm">
         <INPUT type="text" name="duration" width=50></input><BR>
-        <INPUT type="submit" name="submit_button" value="Reserve Board"></input>
+        <INPUT type="submit" name="submit_button" onClick="DoReservationOperation(this.form)" value="Reserve Board"></input>
         </FORM>""" % reserve_link)
         req.html.append(release_form_disabled_str)
         req.html.append(force_form_disabled_str)
@@ -1490,8 +1498,8 @@ function getUptime() {
         req.html.append("""Board is currently reserved by %s """ % user)
         req.html.append(reserve_form_disabled_str)
         req.html.append("""Press the button to release the board""")
-        req.html.append("""<FORM METHOD="GET" ACTION="%s">
-        <INPUT type="submit" name="submit_button" value="Release"></input>
+        req.html.append("""<FORM METHOD="GET" ACTION="%s" id="ReleaseForm">
+        <INPUT type="submit" name="submit_button" onClick="DoReservationOperation(this.form)" value="Release"></input>
         </FORM>""" % release_link)
         req.html.append(force_form_disabled_str)
 
@@ -1503,14 +1511,68 @@ function getUptime() {
         req.html.append(reserve_form_disabled_str)
         req.html.append(release_form_disabled_str)
         req.html.append("Press the button to release the board forcefully")
-        req.html.append("""<FORM METHOD="GET" ACTION="%s">
-        <INPUT type="submit" name="submit_button" value="Force Release!"></input>
+        req.html.append("""<FORM METHOD="GET" ACTION="%s" id="ForceReleaseForm">
+        <INPUT type="submit" name="submit_button" onClick="DoReservationOperation(this.form)" value="Force Release!"></input>
         </FORM>""" % force_link)
 
     req.html.append("</td>")
 
     # FIXTHIS - use javascript to put run result into a box, instead
     # of switching to a new page with a form submission
+
+    req.html.append("""<script>
+
+function myPreventDefault(event) {
+    event.preventDefault();
+}
+
+document.getElementById('ReserveForm').addEventListener("submit", myPreventDefault);
+document.getElementById('ReleaseForm').addEventListener("submit", myPreventDefault);
+document.getElementById('ForceReleaseForm').addEventListener("submit", myPreventDefault);
+
+function DoReservationOperation(form) {
+  var xhttp = new XMLHttpRequest();
+  var url = form.action;
+  var duration = "";
+  var params = "";
+  var msg = "";
+  var method = "GET";
+
+  if (form.id == "ReserveForm") {
+      duration = form.duration.value;
+      params = "duration=" + duration;
+      msg = "<i>Reserving Board...</i>";
+      method = "POST";
+  }
+  if (form.id == "ReleaseForm") {
+      msg = "<i>Releasing Board...</i>";
+  }
+  if (form.id == "ForceReleaseForm") {
+      msg = "<i>Releasing Board (forcefully)...</i>";
+  }
+
+  document.getElementById("message").innerHTML = msg;
+
+  xhttp.open(method, url, true);
+  xhttp.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+
+  xhttp.onreadystatechange = function () {
+    if (this.readyState == 4 && this.status == 200) {
+       result = JSON.parse(this.responseText)
+       msg = result.message;
+       if (result.result == "fail") {
+          msg = "<font color=red>Error:" + msg + "</font>";
+       }
+       document.getElementById("message").innerHTML = msg;
+       alert(msg);
+       window.location.reload(true);
+    }
+  };
+
+  xhttp.send(params);
+}
+</script>
+""")
 
     # show last image taken by camera, if there is one
 
@@ -2241,8 +2303,11 @@ def do_board_assign(req, board, board_map, rest):
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
+    end_time = board_map["end_time"]
+    if end_time == "never":
+        end_time = "forever"
     msg = "Board %s is assigned to you from %s until %s" % \
-            (board, board_map["start_time"], board_map["end_time"])
+            (board, board_map["start_time"], end_time)
     req.send_api_response_msg(RSLT_OK, msg)
     return
 
@@ -2296,12 +2361,12 @@ def do_board_run(req, board, board_map, rest):
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
-    # This seems optimistic - maybe add some error handling here
-    run_data = req.form.value.decode("utf-8")
-    dlog_this("run_data=%s" % run_data)
+    # get the command to run
     try:
+        run_data = req.form.value.decode("utf-8")
+        dlog_this("run_data=%s" % run_data)
         command_to_run = json.loads(run_data).get("command", "")
-    except TypeError:
+    except (TypeError, AttributeError):
         command_to_run = req.form.getfirst("command", "")
 
     dlog_this("command_to_run=%s" % command_to_run)
@@ -2873,7 +2938,7 @@ def set_config(req, action, resource_map, config_map, rest):
     msg = ""
 
     if not config_map:
-        return "No configuration items were provided to set_config operation"
+        return "No configuration items were provided to set-config operation"
 
 
     resource = resource_map["name"]
