@@ -1419,7 +1419,6 @@ def get_power_status(req, bmap):
 
 # show the web ui for boards on this machine
 def show_boards(req):
-    req.html.append("<H1>Boards</h1>")
     boards = get_object_list(req, "board")
 
     # show a table of attributes
@@ -1686,7 +1685,6 @@ function DoReservationOperation(form) {
     req.show_footer()
 
 def show_resources(req):
-    req.html.append("<H1>Resources</h1>")
     resources = get_object_list(req, "resource")
 
     # show a table of attributes
@@ -1745,7 +1743,6 @@ def show_resource(req, resource):
 
 def show_users(req):
     d = {}
-    req.html.append("<H1>Users</h1>")
     users = get_object_list(req, "user")
     boards = get_object_list(req, "board")
 
@@ -1800,7 +1797,7 @@ def do_show(req):
 
     handled = False
     if page_name in ["boards", "users", "resources", "requests", "logs"]:
-        show_header(req, "Lab Control %s objects" % page_name)
+        show_header(req, "Lab Control %s%s" % (page_name[0].upper(), page_name[1:]))
 
     if page_name=="boards":
         show_boards(req)
