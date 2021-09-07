@@ -426,7 +426,7 @@ class req_class:
             self.html.append("<h2>lcserver message(s):</h2>")
             self.html.append(self.message)
 
-    def show_header(self, title):
+    def show_html_header(self, title):
         if self.header_shown:
             return
 
@@ -439,7 +439,45 @@ class req_class:
 
         # render the header markup
         self.html.append(self.header)
-        self.html.append('<body><h1 align="center">%s</h1>' % title)
+        self.html.append("""<head>
+<meta charset="utf-8">
+<title>%s</title>
+
+<style>
+body {
+  padding-top: 5px;
+  margin-bottom: 100px;
+}
+
+html {
+  position: relative;
+  min-height: 100%%;
+}
+
+#navbar{width:100%%;}
+.alignleft {
+  background-color:#0fffff;
+  width:180px;
+  vertical-align:middle;
+  float:left;
+}
+.alignright {
+  background-color:#b0ffb0;
+  vertical-align:middle;
+  float:right;
+}
+.center {
+/*  background-color:#ff0000; */
+  vertical-align:middle;
+  width:400px;
+  margin:0 auto;
+}
+
+</style>
+</head>
+
+<body>
+""" % title)
         self.header_shown = True
 
     def show_footer(self):
@@ -596,6 +634,37 @@ CGI_VARS=["CONTENT_TYPE", "CONTENT_LENGTH", "DOCUMENT_ROOT",
     "REQUEST_URI", "SCRIPT_FILENAME", "SCRIPT_NAME", "SERVER_ADMIN",
     "SERVER_NAME", "SERVER_PORT", "SERVER_SOFTWARE"]
 
+def show_header(req, title):
+    req.show_html_header(title)
+
+    # show global navigation bar (including login)
+    ## start navbar div
+    req.html.append('<div id="navbar" height="100px" width="100%%">')
+
+    # put login link, with float attribute to right, first
+    req.html.append("""<div class="alignleft"><font size="6"><b>
+    &nbsp;<a href="%(url_base)s">[LC - logo]</b></font></a>&nbsp;""" % req.config)
+    req.html.append('</div>')
+
+    # show object menus
+
+    req.html.append("""<div class="alignright">%(login_link_nobr)s</div>""" % req.data)
+
+    req.html.append('<div class="center">')
+    req.html.append('<a href="%(url_base)s/boards">Boards</a>&nbsp;' % req.config)
+    req.html.append('<a href="%(url_base)s/resources">Resources</a>&nbsp;' % req.config)
+    req.html.append('<a href="%(url_base)s/users">Users</a>&nbsp;' % req.config)
+
+    req.html.append('<a href="%(url_base)s/requests">Requests</a>&nbsp;' % req.config)
+    req.html.append('<a href="%(url_base)s/logs">Logs</a>&nbsp;' % req.config)
+    req.html.append("</div>")
+
+    # close navbar
+    req.html.append('</div style="clear: both;">')
+
+    # show page title / page trail
+    req.html.append('<h2 id="page_title">%s</h2><hr>' % title)
+
 def log_env(req, varnames=[]):
     env_keys = list(req.environ.keys())
     if varnames:
@@ -608,7 +677,7 @@ def log_env(req, varnames=[]):
 
 def do_login_form(req):
     # show user login form
-    req.show_header("LabControl User login")
+    show_header(req, "LabControl User login")
     req.html.append("""<FORM METHOD="POST" ACTION="%s?action=login">
 <table id=loginform><tr><td>
   Name:</td><td align="right"><INPUT type="text" name="name" width=15></input></td></tr>
@@ -646,12 +715,12 @@ def do_login(req):
     req.data.cookies = "Set-Cookie: %s" % cookies
 
     # process user login
-    req.show_header("LabControl User login")
+    show_header(req, "LabControl User login")
     req.html.append(html)
 
 def do_user_edit_form(req):
     # show user edit form
-    req.show_header("LabControl User Account edit")
+    show_header(req, "LabControl User Account edit")
     req.html.append("""<FORM METHOD="POST" ACTION="%s?action=user_edit">
 <table id=loginform><tr><td>
   Name:</td><td align="right"><INPUT type="text" name="name" width=15></input></td></tr>
@@ -671,13 +740,13 @@ def do_logout(req):
     # send cookies back to user
     req.data.cookies = "Set-Cookie: %s" % cookies
 
-    req.show_header("LabControl User Account logout")
+    show_header(req, "LabControl User Account logout")
     req.html.append(html)
     return
 
 def do_create_user_form(req):
     # show create user login form
-    req.show_header("Create LabControl User Account")
+    show_header(req, "Create LabControl User Account")
     req.html.append("""Please enter the data for the new user.
 <p><i>Note: Names may only include letters, numbers, and the following
 characters: _ - . @<i>
@@ -704,7 +773,7 @@ characters: _ - . @<i>
                          (req.page_url))
 
 def do_create_user(req):
-    req.show_header("LabControl Create User")
+    show_header(req, "LabControl Create User")
 
     err_close_msg = "<p>Could not create user.\n<p>" + \
                     'Click to return to <a href="%s">%s</a>' % \
@@ -1723,7 +1792,6 @@ def show_users(req):
     req.html.append("</table>")
     req.show_footer()
 
-
 # show the web ui for objects on the server
 # this is the main human interface to the server
 def do_show(req):
@@ -1732,7 +1800,7 @@ def do_show(req):
 
     handled = False
     if page_name in ["boards", "users", "resources", "requests", "logs"]:
-        req.show_header("Lab Control objects")
+        show_header(req, "Lab Control %s objects" % page_name)
 
     if page_name=="boards":
         show_boards(req)
@@ -1757,7 +1825,7 @@ def do_show(req):
         raw_data = req.read_page()
         # interpolate data into the page
         data = raw_data % req.data
-        req.show_header("")
+        show_header(req, "")
         req.html.append(data)
         handled = True
 
@@ -1765,11 +1833,11 @@ def do_show(req):
         # check for object name here, and show individual object
         #   status and control interface
         if req.obj_type in ["board", "resource"]:
-            req.show_header("Lab Control %s" % req.obj_type)
+            show_header(req, "Lab Control %s" % req.obj_type)
             # show individual object
             show_object(req, req.obj_type, req.page_name)
         else:
-            req.show_header("Lab Control")
+            show_header(req, "Lab Control")
             title = "Error - unsupported object type '%s'" % req.obj_type
             req.add_to_message(title)
 
@@ -1777,30 +1845,15 @@ def do_show(req):
     if req.page_name != "Main":
         req.html.append("<br><hr>")
 
-    # always show the object menu
-    req.html.append("<H1>Lab Control objects on this server</h1>")
-    req.html.append("""
-Here are links to the different Lab Control objects:<br>
-<ul>
-<li><a href="%(url_base)s/boards">Boards</a></li>
-<li><a href="%(url_base)s/resources">Resources</a></li>
-<li><a href="%(url_base)s/users">Users</a></li>
-<li><a href="%(url_base)s/requests">Requests</a></li>
-<li><a href="%(url_base)s/logs">Logs</a></li>
-</ul>
-<hr>
-""" % req.config )
-
-    req.html.append("""<a href="%(url_base)s/raw">Show raw objects</a><br>\n""" % req.config)
     req.html.append("""<a href="%(url_base)s">Back to home page</a>""" % req.config)
 
     req.show_footer()
 
 # show raw objects
 def do_raw(req):
-    req.show_header("Lab Control Raw objects")
-    log_this("in do_raw, req.page_name='%s'\n" % req.page_name)
-    req.html.append("req.page_name='%s' <br><br>" % req.page_name)
+    show_header(req, "Lab Control Raw objects")
+    dlog_this("in do_raw, req.page_name='%s'\n" % req.page_name)
+    #req.html.append("req.page_name='%s' <br><br>" % req.page_name)
 
     if req.page_name not in ["boards", "resources", "users", "requests", "logs", "main"]:
         title = "Error - unknown object type '%s'" % req.page_name
@@ -3488,7 +3541,7 @@ def do_api(req):
     # get the path elements after 'api'
     parts = path_parts[path_parts.index("api")+1:]
 
-    #req.show_header("in do_api")
+    #show_header(req, "in do_api")
     #req.html.append("parts=%s" % parts)
     dlog_this("parts=%s" % parts)
 
@@ -3651,7 +3704,7 @@ def handle_request(environ, req):
     #req.add_to_message("action=%s" % action)
 
     # NOTE: uncomment this when you get a 500 error
-    #req.show_header('Debug')
+    #show_header(req, 'Debug')
     #show_env(req, environ)
     #show_env(req, environ, True)
     log_this("in handle_request: action='%s', page_name='%s'" % (action, page_name))
@@ -3680,7 +3733,7 @@ def handle_request(environ, req):
         action_function(req)
         return
 
-    req.show_header("LabControl server Error")
+    show_header(req, "LabControl server Error")
     req.html.append(req.html_error("Unknown action '%s'" % action))
 
 
@@ -3704,7 +3757,7 @@ def cgi_main():
     except SystemExit:
         pass
     except:
-        req.show_header("LabControl Server Error")
+        show_header(req, "LabControl Server Error")
         req.html.append('<font color="red">Execution raised by software</font>')
 
         # show traceback information here:

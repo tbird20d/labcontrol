@@ -7,3 +7,7 @@ Here is a list of administration activities you can perform:
 <li><a href="%(page_url)s?action=create_user_form">Create User</a></li>
 </ul>
 <hr>
+<p>
+You can also examine the raw object data on this server:
+<p>
+<a href="%(url_base)s/raw">Show raw objects</a>

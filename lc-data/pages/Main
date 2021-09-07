@@ -1,5 +1,4 @@
 <H1 align="center">Lab Control</H1>
-<div align="right">%(login_link_nobr)s</div>
 
 This is the page for the Lab Control server for the
 <font color="red" size=5>%(lab_name)s</font> board farm.
@@ -11,12 +10,12 @@ operations, including running tests on them.
 <p>
 
 <HR>
-
-Here is a test page: <a href="%(url_base)s/Test_Page_Data">Test_Page_Data</a>
+Please select an item from the links at the top of this page.
+<p>
+Other pages that are available are:
 <p>
 %(admin_page_link)s
 <p>
-<hr>
-Please select from the menu items shown below.
+A test page: <a href="%(url_base)s/Test_Page_Data">Test_Page_Data</a>
 <p>
-
+<hr>
