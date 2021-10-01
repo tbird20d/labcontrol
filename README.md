@@ -70,11 +70,11 @@ To stop the server, use the following command:
 Accessing the server
 ====================
 To access the server using a web browser, go to:
- http://<ip address>:<port>/lcserver.py
+ http://{ip address}:{port}/lcserver.py
 
 To access the server using the command line, use the 'lc' command:
  * lc help - to get command line help
- * lc help <command> - to get help for an 'lc' command
+ * lc help {command} - to get help for an 'lc' command
  * lc list-boards - to list the boards managed by the server
  * lc list-resources - to list resources managed by the server
  * lc {board} power reboot
