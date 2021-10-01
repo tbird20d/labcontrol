@@ -2,7 +2,21 @@
 #
 # Usage: start_server [<port>]
 #
+# Port defaults to 8000 if not specified
+#
+PORT=8000
+if [ -n "$1" ] ; then
+    PORT="$1"
+else
+    PORT=8000
+fi
+
+# put the latest lcserver.py into the cgi-bin directory
+# relative to this directory
+mkdir -p cgi-bin
+cp lcserver.py cgi-bin
 
 unset http_proxy
 unset ftp_proxy
-exec python test-server.py $1
+echo "To access server, use http://localhost:$PORT/"
+exec python3 -m http.server --cgi $PORT
