@@ -7,66 +7,22 @@ by labcontrol.
 Labcontrol objects are represented as json files in a data directory.
 
 The three main object types supported by labcontrol are:
- * users
  * boards
  * resources
+ * users
 
-The labcontrol server provides the means to control objects in a 
+The labcontrol server provides the means to control objects in a
 board farm.  Specifically, it provides a web user interface, for manual
 access and control of board farm (lab) objects, as well as REST APIs
-for client-based access.  Included in the labcontrol system is 
+for client-based access.  Included in the labcontrol system is
 both the server, and a REST API client, called 'lc'.
 
 The general architecture of labcontrol is that a lab consists of
 one or more boards, and resources that are associated with, or connected
-to those boards.  Operations, such as turning power on or off to a 
+to those boards.  Operations, such as turning power on or off to a
 board, can be accomplished by performing actions either directly to
 a board, or by first getting the resource associated with that action for
 that board, then requesting the resource to perform the action.
-
-
-Users
-=====
-
-Users are used to provide security, so that only authenticated users
-can perform actions on boards.  Some actions can be destructive
-(such as overriting files), so restricting access to actions
-to only allows users is important.
-
-A user is defined by a file in lc-data/data/users that has the
-following characteristics
- * name
- * password
- * auth_token
-
-The name of the file is the user's name, prefixed with the string
-"user-" and with the file extension ".json".
-
-So, the the user file for a user with name "tbird", might look
-like this:
-
-Name of the user json file: user-tbird.json
-Contents of the user json file:
-{
-     "name": "tbird",
-     "password": "tims-pass123",
-     "auth_token": "ef9382b66a18ec7f"
-}
-
-Currently, the password is stored in cleartext, but it would be
-better to store it as a password hash (with a salt).
-
-When a user "logs in" to the system, they provide their user account
-name and password, and the system returns an authentication token.
-That token is used in subsequent interactions with the server.
-Each APi includes the api token.
-
-Note that the API should only be conducted over secure http (https),
-so that the security information is encrypted.  However, the test
-servers used for development (e.g. start_server) only provide
-access to the server over unencrypted HTTP.  It is envisioned
-that a production installation of the server will be as a CGI script
-to an https server.
 
 
 Boards
@@ -273,16 +229,63 @@ serial device in the lab associated with this resource.  Specifically,
 it is the command to configure the lab endpoint (not the board
 endpoint) of the serial connection.  As of June 2021, this command
 can use the "baud_rate" variable as part of the command.
-[[See section xxxx for how the variables are set before executing
-the command]]
 
-Section xxxx [[started]]
+[[See section 'Helper Invocation' for how the variables are set
+before executing the command]]
+
+Users
+=====
+
+Users are used to provide security, so that only authenticated users
+can perform actions on boards.  Some actions can be destructive
+(such as overriting files), so restricting access to actions
+to only allows users is important.
+
+A user is defined by a file in lc-data/data/users that has the
+following characteristics
+ * name
+ * password
+ * auth_token
+
+The name of the file is the user's name, prefixed with the string
+"user-" and with the file extension ".json".
+
+So, the the user file for a user with name "tbird", might look
+like this:
+
+Name of the user json file: user-tbird.json
+Contents of the user json file:
+{
+     "name": "tbird",
+     "password": "tims-pass123",
+     "auth_token": "ef9382b66a18ec7f"
+}
+
+Currently, the password is stored in cleartext, but it would be
+better to store it as a password hash (with a salt).
+
+When a user "logs in" to the system, they provide their user account
+name and password, and the system returns an authentication token.
+That token is used in subsequent interactions with the server.
+Each APi includes the api token.
+
+Note that the API should only be conducted over secure http (https),
+so that the security information is encrypted.  However, the test
+servers used for development (e.g. start_server) only provide
+access to the server over unencrypted HTTP.  It is envisioned
+that a production installation of the server will be as a CGI script
+to an https server.
+
+Helper Invocation
+=================
+[[started, but needs to be finished]]
+
 Before calling a command, the server will replace variables in the
 value string for the command, with those that match from the
 board or resource definition.  In some cases, special variables
 are also set.
 
-The convention is that commands are expressed in python2
+The convention is that commands are expressed in python (old-style)
 named-variable syntax for python formatted strings.
 The variables from the resource or board are put into a python
 dictionary, then any special variables are added (such as 'logfile',
@@ -291,12 +294,12 @@ dictionary.  Python named-variable syntax uses '%' followed
 by the variable name enclosed in parens, followed by 's', like
 this: %(variable_name)s.
 
-It is a common error to forget the trailing 's'.  If you
-get a string formatting exception, when trying to execute
-a command, this is the most likely cause.
-
 For example, in the string: 
  "stty -F %(serial_dev)s %(baud_rate)s raw -echo -echoe -echok"
+
+Note that it is a common error to forget the trailing 's'.  If you
+get a string formatting exception, when trying to execute
+a command, this is the most likely cause.
 
 The 'serial_dev' variable is an arbitrary helper variable defined
 in the resource file.  And the 'baud_rate' variable is a special
