@@ -13,15 +13,18 @@ LabControl server handles the user interface (HTML),
 as well as web-based object storage for the following lab objects
  * Boards
  * Resources
-
-In the future, additional objects may be stored, including:
  * User objects
 
 Dependencies
 ============
 
-* LabControl server requires Python 2
-* labcontrol client requires Python 3
+* LabControl server requires Python 3 and the 'psutil' module
+  * Under Debian or Ubuntu, do: "apt install python3-psutil"
+  * The test server requires the http.server module, but this is included
+    in the core distribution of Python3
+* The Labcontrol client ('lc') requires Python 3 and the 'requests' module
+  * Under Debian or Ubuntu, do: "apt install python3-requests"
+
 
 Configuration
 =============
@@ -46,7 +49,7 @@ command line, like so:
 By default, port 8000 is used.
 
 In foreground mode, the program runs directly in the terminal where
-fserver was started, and log messages are displayed on the screen
+the server was started, and log messages are displayed on the screen
 as the server processes network requests.
 
 To stop the server, use CTRL-C (possibly a few times), to interrupt
