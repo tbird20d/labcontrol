@@ -3,20 +3,19 @@ To Do file for labcontrol:
 (See NOTES file for how to restart work)
 
 = to do =
- - lc <board> ssh run <command> <args>
- - lc <board> ssh upload <command> <args>
- - lc <board> ssh download <command> <args>
 
  - lc <board> console
    - need interactive web session for shell
 
  - lc <board> login (or ssh)
 
+
  - integration with Fuego core
 
  - web-based shell for web-interface
    - for DUT serial console
    - for ssh from host to DUT
+
  - web-based webcamera view
 
  - allow users to connect resources to boards
@@ -28,6 +27,11 @@ To Do file for labcontrol:
  - support resource reservations
 
 == client (lc):
+ - "lc bbb get-resource serial" returns
+Error: no resource type 'serial' associated with board 'bbb'
+    - this is not very helpful.
+    - 'lc bbb get-resource serial uart1' works
+    - error message should be 'needs feature name' or something like that
 
 == server (lcserver.py):
  - switch lcserver.py to eliminate old request API (non-json)
@@ -45,7 +49,6 @@ To Do file for labcontrol:
      do_raw
      do_api
    - raw view is json file object views (mostly for debugging)
-
 
 Things that work:
  + lc config
@@ -66,18 +69,20 @@ Things that work:
  + lc <board> get-resource <type>
  + lc <resource> power-measurement start
  + lc <resource> power-measurement stop <token>
- + lc <resource> power-measurement get_data <token>
+ + lc <resource> power-measurement get-data <token>
  + lc <resource> power-measurement delete <token>
+ + lc <resource> serial start
+ + lc <resource> serial stop <token>
+ + lc <resource> serial get_data <token>
+ + lc <resource> serial delete <token>
+ + echo json | lc <resource> set_config
+ + echo data | lc <resource> serial put-data
+ + lc <resource> camera capture [-o <filename>] [-v]
+ + lc <resource> camera start
+ + lc <resource> camera get-ref [-o <filename>] [-v]
+ + lc <resource> camera delete
 
  + authentication token api
-   - OUTPUT=$(curl -s -k --location --request POST "$SERVER_URL/api/v0.2/token/"  --header 'Content-Type: application/json' --data-raw '{"username":"'"$USER_NAME"'" , "password":"'"$PASSWORD"'"}')
-      AUTH_TOKEN=$(echo $OUTPUT|jq -r .data.token)
-   - RESULT=$(echo $OUTPUT|jq -r .result)
-
-   - OUTPUT=$(curl -s -k --location --request GET "$SERVER_URL/api/v0.2/devices/mine/"  --header 'Authorization: token '$AUTH_TOKEN'')
-      - how to do this in the lc client:
-        - requests.post(url, headers={'Content-type':'application/json',
-            'Authorization': 'token %s' % access_token})
 
  (DOES wget still work, now that we require an authentication token?)
  + wget -q -O- http://localhost:8000/api/v0.2/devices - using path api
@@ -96,6 +101,17 @@ Things that work:
  + wget .../api/v0.2/resources/sdb-042/power_measurement/stop/1234
  + wget .../api/v0.2/resources/sdb-042/power_measurement/get_data/1234
  + wget .../api/v0.2/resources/sdb-042/power_measurement/delete/1234
+ + wget .../api/v0.2/resources/serial-AQ/serial/start
+ + wget .../api/v0.2/resources/serial-AQ/serial/stop/1234
+ + wget .../api/v0.2/resources/serial-AQ/serial/get_data/1234
+ + wget .../api/v0.2/resources/serial-AQ/serial/delete/1234
+ + wget .../api/v0.2/resources/serial-AQ/serial/set-config
+ + wget .../api/v0.2/resources/serial-AQ/serial/put-data
+ + wget .../api/v0.2/resources/logitech1/camera/capture
+ + wget .../api/v0.2/resources/logitech1/camera/start
+ + wget .../api/v0.2/resources/logitech1/camera/stop/1234
+ + wget .../api/v0.2/resources/logitech1/camera/get_ref/1234
+ + wget .../api/v0.2/resources/logitech1/camera/delete/1234
 
 
 
