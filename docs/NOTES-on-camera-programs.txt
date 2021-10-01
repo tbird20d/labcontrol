@@ -1,0 +1,28 @@
+Here are some notes on camera stuff:
+
+On the raspberry Pi board, there is a camera module, which can
+be accessed using the program:
+  raspistill
+
+This can take a single image, and save it to a file.
+I believe the raspberry pi camera module is NOT USB-based.
+
+----
+On Ubuntu, you can take a still picture using a graphical program
+called "cheese".  I don't see a way to use cheese to take a picture
+from the command line.
+----
+
+There is also 'webcam', but I don't know how it works.
+I tried it, but it needs a config file, and it looks like
+it always tries to transmit the data via ftp.  That is,
+it looks highly specific for sending periodic image data
+(like for a security camera) to another machine.
+
+----
+I downloaded streamer, and it seems to do what I want.
+
+streamer -f jpeg -s 800x600 -c /dev/video2 -o $(date -Iminutes)-LogiTech-Streamer.jpeg
+streamer pictures are quite dark
+
+----

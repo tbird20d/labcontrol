@@ -1,0 +1,27 @@
+Here is code to manually parser multipart/form data:
+
+----------
+
+if("multipart/form-data" in headers["Content-Type"]):
+    data_list = []
+    content_list = content.split("\r\n\r\n")
+    for i in range(len(content_list) - 1):
+        data_list.append("")
+
+    data_list[0] += content_list[0].split("name=")[1].split(";")[0].replace('"','') + "="
+
+    for i,c in enumerate(content_list[1:-1]):
+        key = c.split("name=")[1].split(";")[0].replace('"','')
+        data_list[i+1] += key + "="
+        value = c.split("\r\n")
+        data_list[i] += value[0]
+
+    data_list[-1] += content_list[-1].split("\r\n")[0]
+
+    content = "&".join(data_list)
+
+----------
+
+This is from StackOverflow:
+https://stackoverflow.com/a/22000555/757965
+
