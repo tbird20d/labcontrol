@@ -1,12 +1,61 @@
 Here are some notes for using pyacmegrapgh
 
-Setup Instructions (tested on Debian buster with python 3.7.3):
+== pre-requisites ==
+You need libiio and pylibiio to use pyacmegraph.
+
+Setup Instructions (on Debian buster (16.04) with python 3.7.3):
 
 *   pip3 install numpy
 *   apt-get update
 
 *   apt-get install -y libiio-dev
 *   pip3 install pylibiio
+
+on Debian focal (20.04), I did this:
+
+* apt-get install -y libiio-dev
+This gave me version 0.19.1 of libiio
+
+I got this error from importing iio:
+>>> import iio
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/home/tbird/.local/lib/python3.8/site-packages/iio.py", line 364, in <module>
+    _d_get_label = _lib.iio_device_get_label
+  File "/usr/lib/python3.8/ctypes/__init__.py", line 386, in __getattr__
+    func = self.__getitem__(name)
+  File "/usr/lib/python3.8/ctypes/__init__.py", line 391, in __getitem__
+    func = self._FuncPtr((name_or_ordinal, self))
+AttributeError: /lib/x86_64-linux-gnu/libiio.so.0: undefined symbol: iio_device_get_label
+----
+
+
+I ended up building and installing libiio from github (see ~/work/libiio)
+following the instructions in ~/work/libiio/README_BUILD.md.
+
+After that I got this error from pyacmegraph:
+----
+$ ./pyacmegraph.py --ip acme --filename foo.log --samplingtime 1 --probe 1
+Connecting with ACME...
+  Connecting with IP address:  acme
+1
+1
+[<iio.Device object at 0x7fca2dcdb760>]
+[<iio.Device object at 0x7fca2dcdb760>]
+<iio.Device object at 0x7fca2dcdb760>
+Configuring new device 1 of 1. Name: ina226 ; id: iio:device0
+Exception in thread Thread-1:
+Traceback (most recent call last):
+  File "/usr/lib/python3.8/threading.py", line 932, in _bootstrap_inner
+    self.run()
+  File "./pyacmegraph.py", line 323, in run
+    self.buf = iio.Buffer(self.dev, self.buffer_size)
+  File "/home/tbird/.local/lib/python3.8/site-packages/iio.py", line 1013, in __init__
+    self._ctx = device.ctx()
+TypeError: 'Context' object is not callable
+----
+
+== pyacmegraph usage ==
 
 
 Usage:

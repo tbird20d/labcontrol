@@ -8,6 +8,8 @@ Current objects supported are:
  * resources
    * power-controller
    * network-server
+   * serial
+ * users
  * requests
    * test (put-request?)
 
