@@ -17,6 +17,20 @@ as well as web-based object storage for the following lab objects
 In the future, additional objects may be stored, including:
  * User objects
 
+Dependencies
+============
+
+* LabControl server requires Python 2
+* labcontrol client requires Python 3
+
+Configuration
+=============
+
+Before starting `lcserver` either create base directory in its default path
+(`/usr/local/src/labcontrol/lc-data`) or set `base_dir` variable in the
+`lcserver.conf`. Remeber to copy the configuration file to
+`/etc/lcserver.conf`.
+
 Starting in foreground mode
 ===========================
 To start lcserver in foreground mode, cd to the top-level directory,
