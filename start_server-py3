@@ -3,6 +3,12 @@
 # Usage: start_server [<port>]
 #
 # Port defaults to 8000 if not specified
+# Unfortunately, the http.server module does not
+# support the 'token' authorization scheme used
+# by the rest API.
+#
+# I'm still working to figure this out.
+#
 PORT=8000
 if [ -n "$1" ] ; then
     PORT="$1"
@@ -12,11 +18,10 @@ fi
 
 # put the latest lcserver.py into the cgi-bin directory
 # relative to this directory
-# This makes the behavior of the test server closer to
-# the behavior of an Apache server
 mkdir -p cgi-bin
 cp lcserver.py cgi-bin
 
 unset http_proxy
 unset ftp_proxy
-exec python test-server.py $PORT
+echo "To access server, use http://localhost:$PORT/"
+exec python3 -m http.server --cgi $PORT

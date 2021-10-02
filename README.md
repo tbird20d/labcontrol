@@ -18,13 +18,17 @@ as well as web-based object storage for the following lab objects
 Dependencies
 ============
 
-* LabControl server requires Python 3 and the 'psutil' module
+* LabControl server CGI script (lcserver.cgi) requires Python 3 and
+  the 'psutil' module
   * Under Debian or Ubuntu, do: "apt install python3-psutil"
-  * The test server requires the http.server module, but this is included
-    in the core distribution of Python3
+
 * The Labcontrol client ('lc') requires Python 3 and the 'requests' module
   * Under Debian or Ubuntu, do: "apt install python3-requests"
 
+* The labcontrol test server (a small, non-production-grade python
+  http server), requires Python 2, and the CGIHTTPServer module
+  * This should be included in the standard modules in your python2
+    installation.
 
 Configuration
 =============
