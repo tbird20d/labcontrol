@@ -1900,6 +1900,12 @@ def main():
 
 if __name__ == "__main__":
     try:
+        # to get python profile data, uncomment the next 2 lines
+        # and comment out the direct call to main()
+        # After 'lc' runs, you'll see a bunch of profile data for
+        # functions called during execution.
+        #import cProfile
+        #cProfile.run("main()")
         main()
     except requests.ConnectionError as e:
         error_out("""Could not connect to server: %s.
