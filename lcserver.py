@@ -1338,9 +1338,21 @@ def show_board_info(req, bmap):
     else:
        power_status = "Unknown"
     req.html.append("<li>Power Status: %s</li>\n" % power_status)
+    (net_status_result, net_status_msg) = get_network_status(req, bmap)
+    (cmd_status_result, cmd_status_msg) = get_command_status(req, bmap)
+    if net_status_result == RSLT_OK:
+        network_status = net_status_msg
+    else:
+        network_status = req.html_error(net_status_msg)
+    if cmd_status_result == RSLT_OK:
+        command_status = cmd_status_msg
+    else:
+        command_status = req.html_error(cmd_status_msg)
+
+    req.html.append("<li>Network Status: %s</li>\n" % network_status)
+    req.html.append("<li>Command Status: %s</li>\n" % command_status)
 
     req.html.append("</ul>\n")
-
     req.html.append("<h3>Actions</h3>\n<ul>\n")
     if pc:
         reboot_link = req.config.url_base + "/api/v0.2/devices/%s/power/reboot" % (bmap["name"])
@@ -1415,7 +1427,43 @@ def get_power_status(req, bmap):
 
     # FIXTHIS - translate power status output here, if needed
 
-    return (RSLT_OK, output)
+    status_str = output.strip()
+    return (RSLT_OK, status_str)
+
+ # returns (RSLT_OK, status|RSLT_FAIL, message)
+ # status can be one of: "RESPONSIVE", "NONRESPONSIVE", "UNKNOWN"
+def get_network_status(req, bmap):
+    # lookup command to execute in board_map
+    if "network_status_cmd" not in bmap:
+        msg = "board '%s' does not have network_status_cmd attribute, cannot execute" % bmap["name"]
+        return (RSLT_FAIL, msg)
+
+    cmd_str = bmap["network_status_cmd"]
+    icmd_str = get_interpolated_str(cmd_str, bmap)
+    rcode, output = lc_getstatusoutput(req, icmd_str)
+    if rcode:
+        msg = "Result of network status operation on board %s = %d\n" % (bmap["name"], rcode)
+        msg += "command output='%s'" % output
+        return (RSLT_FAIL, msg)
+    status_str = output.strip()
+    if status_str not in ["RESPONSIVE", "NONRESPONSIVE", "UNKNOWN"]:
+        log_this("Invalid status_str of '%s' received from network_status_cmd" % status_str)
+    return (RSLT_OK, status_str)
+
+ # returns (RSLT_OK, status|RSLT_FAIL, message)
+ # status can be one of: "OPERATIVE", "INPORATIVE", "UNKNOWN"
+def get_command_status(req,bmap):
+    # lookup command to execute in board_map
+    if "command_status_cmd" not in bmap:
+        msg = "board '%s' does not have command_status_cmd attribute, cannot execute" % bmap["name"]
+        return (RSLT_FAIL, msg)
+    cmd_str = bmap["command_status_cmd"]
+    icmd_str = get_interpolated_str(cmd_str, bmap)
+    rcode, output = lc_getstatusoutput(req, icmd_str)
+    status_str = output.strip()
+    if status_str not in ["OPERATIVE", "INOPERATIVE", "UNKNOWN"]:
+        log_this("Invalid status_str of '%s' received from command_status_cmd" % status_str)
+    return (RSLT_OK, status_str)
 
 # show the web ui for boards on this machine
 def show_boards(req):
@@ -2078,6 +2126,15 @@ def return_api_object_data(req, obj_type, obj_name):
     # perform any data transformations required for compliance with spec
     # FIXTHIS - should manage this schema with TimeSys
 
+    if obj_type == "board":
+        # fill in dynamic board status data
+        (result, msg) = get_power_status(req, data)
+        data["power_status"] = msg
+        (result, msg) = get_network_status(req, data)
+        data["network_status"] = msg
+        (result, msg) = get_command_status(req, data)
+        data["command_status"] = msg
+
     req.send_api_response(RSLT_OK, data)
 
 def get_interpolated_str(s, map1, map2={}):
@@ -2225,6 +2282,31 @@ def do_board_camera_operation(req, board, board_map, rest):
         msg = "camera action '%s' not supported" % action
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
+
+def do_status_operation(req, board, board_map, rest):
+    if len(rest):
+        item = rest[0]
+        if item not in ["power", "network", "command"]:
+            msg = "%s operation is not supported. Please check help" % rest[0]
+            req.send_api_response_msg(RSLT_FAIL, msg)
+            return
+    else:
+        item = ""
+
+    if item:
+        if item == "power":
+            (result, msg) = get_power_status(req, board_map)
+        elif item == "network":
+            (result, msg) = get_network_status(req, board_map)
+        elif item == "command":
+            (result, msg) = get_command_status(req, board_map)
+        req.send_api_response_msg(result,msg)
+    else:
+        msg = "bare status operation is not supported"
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+    return
+
 
 def do_board_power_operation(req, board, board_map, rest):
     pdu_map = get_connected_resource(req, board_map, "power_controller")
@@ -2854,6 +2936,10 @@ def return_api_board_action(req, board, action, rest):
 
     elif action == "camera":
         do_board_camera_operation(req, board, board_map, rest)
+        return
+
+    elif action == "status":
+        do_status_operation(req, board, board_map, rest)
         return
 
     msg = "action '%s' not supported (rest='%s')" % (action, rest)

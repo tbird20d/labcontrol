@@ -324,10 +324,17 @@ ex2: token=$(lc logitech camera start 60)
 "version": ("Show version information and exit.", ""),
 
 "status": ("Show status of a board.",
-        """Usage: lc {board} status
+        """Usage: lc {board} status [{item}]
 
-Show the reservation status for a board."""),
+Show the status of a board, including the reservation for a board.
 
+{item} can be one of: "power", "network", or "command", and shows that
+individual status item for the board.
+
+ex: lc bbb status network
+shows whether the board networking is operational or not.
+
+"""),
 }
 
 # here's a helper routine to print a variable with it's name and value
@@ -1240,13 +1247,22 @@ def do_status(conf, options):
     board = options[0]
     del options[0]
 
-    url = conf.API_URL_BASE+"api/v0.2/devices/" + board
+    url = conf.API_URL_BASE+"api/v0.2/devices/%s/status/" % (board)
+    try:
+        item = options[0]
+        del options[0]
+        if item not in ["network", "power", "command"]:
+            error_out("Invalid status item '%s' requested" % item)
+        url = conf.API_URL_BASE+"api/v0.2/devices/%s/status/%s" % (board, item)
+    except:
+        item = ''
+        url = conf.API_URL_BASE+"api/v0.2/devices/%s/" % (board)
 
     headers = { "Authorization": "token " + conf.auth_token }
 
     resp = requests.get(url, headers=headers)
     if resp.status_code != 200:
-        error_out("Cannot read %s from server" % obj_type)
+        error_out("Cannot read %s from server" % item)
 
     try:
         resp_data = resp.json()
@@ -1265,11 +1281,25 @@ def do_status(conf, options):
             reason = "Unknown failure from server"
         error_out(reason)
 
+    # display individual item status
+    if item == "power":
+        print("Power to board is: %s" % resp_data["message"])
+        return
+    if item == "network":
+        print("Network status is: %s" % resp_data["message"])
+        return
+    if item == "command":
+        print("Command status is: %s" % resp_data["message"])
+        return
+
     print("Status for board: %s" % board)
 
     # show who is currently using board
     assigned_to = resp_data.get("AssignedTo", "nobody")
     end_time = resp_data.get("end_time", "unknown")
+    power_status = resp_data.get("power_status", "unknown")
+    network_status = resp_data.get("network_status", "unknown")
+    command_status = resp_data.get("command_status", "unknown")
     if end_time != "unknown":
         end_str = ", ending %s" % end_time
     else:
@@ -1279,12 +1309,9 @@ def do_status(conf, options):
         print('Board "%s" is assigned to user "%s"%s.' % (board, assigned_to, end_str))
     else:
         print('Board "%s" is not reserved.' % (board))
-
-    # FIXTHIS - do_status could report other board status data, like:
-    #   board power-on status
-    #   whether board is running linux (pingable?)
-    #   future reservations for board
-
+    print("Power to board is: %s" % power_status)
+    print("Network status is: %s" % network_status)
+    print("Command status is: %s" % command_status)
 
 def do_get_resource(conf, options):
     # board is a required first argument
