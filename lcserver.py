@@ -1631,6 +1631,15 @@ function getUptime() {
         <INPUT type="submit" name="submit_button" onClick="DoReservationOperation(this.form)" value="Force Release!"></input>
         </FORM>""" % force_link)
 
+    upload_link = req.config.url_base + "/api/v0.2/devices/%s/upload" % bmap["name"]
+    req.html.append("<hr><p>")
+    req.html.append("Select a file and destination path, to upload a file to the target board.<br>")
+    req.html.append("""<FORM METHOD="POST" ACTION="%s" enctype="multipart/form-data">
+         File: <INPUT type="file" name="file"></input></br>
+         Dest. path: <INPUT type="text" name="path" placeholder="/tmp" value="/tmp" width=300></input><BR>
+         <INPUT type="submit" name="submit_button" value="Upload"></input>
+         </FORM>""" % upload_link)
+
     req.html.append("</td>")
 
     # FIXTHIS - use javascript to put run result into a box, instead
@@ -2708,21 +2717,33 @@ def do_board_upload(req, board, bmap, rest):
 
     # get data for the upload
     bin_form_data = req.form.value
+    form_is_from_client = True
     if b"Content-Disposition:" in bin_form_data:
         form_dict = parse_multipart(bin_form_data)
     else:
-        # this probably won't work, but what have I got to lose?
-        log_this("Warning: using form_dict=req.form in do_board_upload()")
+        form_is_from_client = False
         form_dict = req.form
 
-    dest_path = form_dict["path"]
-    filename = os.path.basename(form_dict["filename"])
-    extract = form_dict.get("extract", "false")
-    perms = form_dict.get("permissions", None)
-    data = form_dict["file"]
+    if form_is_from_client:
+        dest_path = form_dict["path"]
+        filename = os.path.basename(form_dict["filename"])
+        data = form_dict["file"]
+        extract = form_dict.get("extract", "false")
+        perms = form_dict.get("permissions", None)
+    else:
+        dest_path = form_dict["path"].value
+        file_item = form_dict["file"]
+        # this prints out the full file contents, uncomment for more debug data
+        #dlog_this("file_item='%s'" % (str(file_item)))
+        filename = file_item.filename
+        data = file_item.file.read()
+        extract = "false"
+        perms = None
 
     dlog_this("dest_path=%s" % dest_path)
     dlog_this("filename=%s" % filename)
+    # this is usually too long to show, but uncomment this for extra debug data
+    #dlog_this("data='%s'" % data)
     dlog_this("extract=%s" % extract)
     dlog_this("perms=%s" % perms)
 
