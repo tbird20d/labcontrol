@@ -1,0 +1,22 @@
+{
+    "AssignedTo": "Tim",
+    "board": "bbb",
+    "camera": "logitech1",
+    "command_status_cmd": "command_test.sh %(board)s",
+    "description": "BeagleBone Black in Tim's lab",
+    "download_cmd": "ttc %(board)s cp target:%(src)s %(dest)s",
+    "end_time": "never",
+    "host": "timslab",
+    "ip_addr": "10.0.1.93",
+    "name": "bbb",
+    "network_status_cmd": "pingtest.sh %(ip_addr)s",
+    "power_controller": "acme1",
+    "power_measurement": "acme1",
+    "power_port": "1",
+    "run_cmd": "ttc %(board)s run %(command)s",
+    "serial_endpoints": [
+        "serial-GE"
+    ],
+    "start_time": "2021-10-06_17:50:49",
+    "upload_cmd": "ttc %(board)s cp %(src)s %(dest)s"
+}
