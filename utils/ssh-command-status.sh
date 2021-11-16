@@ -48,7 +48,7 @@ while [ -n "$1" ] ; do
         -h|--help)
             usage
             ;;
-        -u) USER=$2
+        -u) UNAME=$2
             shift 2
             ;;
         -p)
@@ -79,10 +79,27 @@ while [ -n "$1" ] ; do
     esac
 done
 
+if [ -z "$IPADDR" ] ; then
+    echo "Error: Missing host IP address or hostname.  Cannot continue."
+    echo "Use '-h' for usage help"
+    exit 1
+fi
+
+if [ -z "$UNAME" ] ; then
+    echo "Error: Missing user name.  Cannot continue."
+    echo "Use '-h' for usage help"
+    exit 1
+fi
+
 SSH_ARGS="-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o LogLevel=ERROR -o ConnectTimeout=$TIMEOUT"
 
 stderr_outfile=$(mktemp)
-sshpass -p $PASSWORD ssh $SSH_ARGS $USER@$IPADDR $CMD 2>$stderr_outfile
+if [ -n "$PASSWORD" ] ; then
+    SS_CMD="sshpass -p $PASSWORD ssh $SSH_ARGS $UNAME@$IPADDR $CMD 2>$stderr_outfile"
+else
+    SS_CMD="ssh $SSH_ARGS $UNAME@$IPADDR $CMD 2>$stderr_outfile"
+fi
+$CMD
 status=$?
 
 #echo "$verbose"
@@ -112,7 +129,7 @@ if [ "$verbose" = "true" ] ; then
     else
         echo "Command failed due to unknown reason"
     fi
-    echo "  Executed command: sshpass -p $PASSWORD ssh $SSH_ARGS $USER@$IPADDR $CMD"
+    echo "  Executed command: $SS_CMD"
     echo "  Command exit code=$status"
     if [ -s "$stderr_outfile" ] ; then
         echo -n "  STDERR from command: "
