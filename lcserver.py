@@ -312,7 +312,7 @@ class page_data_class:
         if self.req.user.name=="not-logged-in":
             html = """<a href="%s?action=login_form">Login</a>""" % (self.req.page_url)
         else:
-            html =  """<a href="%s?action=user_edit_form">%s</a><br>
+            html =  """<a href="%s?action=edit_user_form">%s</a><br>
                        <a href="%s?action=logout">Logout</a>""" % \
             (self.req.page_url, self.req.user.name, self.req.page_url)
         return html
@@ -321,7 +321,7 @@ class page_data_class:
         if self.req.user.name=="not-logged-in":
             return self.login_link()
         else:
-            html =  """<a href="%s?action=user_edit_form">%s</a> <a href="%s?action=logout">Logout</a>""" % (self.req.page_url, self.req.user.name, self.req.page_url)
+            html =  """<a href="%s?action=edit_user_form">%s</a> <a href="%s?action=logout">Logout</a>""" % (self.req.page_url, self.req.user.name, self.req.page_url)
         return html
 
     def logout_link(self):
@@ -482,6 +482,8 @@ html {
 
     def show_footer(self):
         self.show_message()
+        ver_str = self.data.version()
+        self.html.append('<div align="center"><font size="-2">LabControl server v. %s</font></div>' % ver_str)
         self.html.append("</body>")
 
     def html_error(self, msg):
@@ -635,6 +637,10 @@ CGI_VARS=["CONTENT_TYPE", "CONTENT_LENGTH", "DOCUMENT_ROOT",
     "SERVER_NAME", "SERVER_PORT", "SERVER_SOFTWARE"]
 
 def show_header(req, title):
+    if req.header_shown:
+        req.html.append("<h1>" + title + "</h1>")
+        return
+
     req.show_html_header(title)
 
     # show global navigation bar (including login)
@@ -718,19 +724,6 @@ def do_login(req):
     show_header(req, "LabControl User login")
     req.html.append(html)
 
-def do_user_edit_form(req):
-    # show user edit form
-    show_header(req, "LabControl User Account edit")
-    req.html.append("""<FORM METHOD="POST" ACTION="%s?action=user_edit">
-<table id=loginform><tr><td>
-  Name:</td><td align="right"><INPUT type="text" name="name" width=15></input></td></tr>
-  <tr><td>Password:</td><td align="right"><INPUT type="password" name="password" width=15></input>
-  </td></tr><tr><td> </td><td align="right">
-  <INPUT type="submit" name="login" value="Login"></input>
-  </td></tr></table></FORM>""" % req.page_url)
-    req.html.append("""<br>Please contact &lt;%s&gt; if you want to create an account""" % req.config.admin_contact_str)
-    req.html.append("</td></tr></table>")
-
 def do_logout(req):
     html = '<h1 align="center">You have been logged out</h1>\n'
     html += 'Click here to return to <a href="%s/Main">Main</a>' % req.config.url_base
@@ -744,7 +737,18 @@ def do_logout(req):
     req.html.append(html)
     return
 
-def do_create_user_form(req):
+################################################################
+# user management
+
+def do_manage_users(req):
+    # show a list of users, with edit and remove buttons
+    # also show a link for adding a user
+    dlog_this("Got to do_manage_users")
+    show_header(req, "Manage Users")
+    req.html.append("Should finish do_manage_users() function")
+    return
+
+def do_add_user_form(req):
     # show create user login form
     show_header(req, "Create LabControl User Account")
     req.html.append("""Please enter the data for the new user.
@@ -753,7 +757,7 @@ characters: _ - . @<i>
 <p>
 """)
 
-    req.html.append("""<FORM METHOD="POST" ACTION="%s?action=create_user">
+    req.html.append("""<FORM METHOD="POST" ACTION="%s?action=add_user">
 <table id=createuserform><tr><td>
   Name:</td><td align="right"><INPUT type="text" name="name" width=15></input></td></tr>
   <tr><td>Password:</td><td align="right">
@@ -772,7 +776,8 @@ characters: _ - . @<i>
     req.html.append('<p>Click to return to <a href="%s/Admin">Admin</a> page.' %
                          (req.page_url))
 
-def do_create_user(req):
+
+def do_add_user(req):
     show_header(req, "LabControl Create User")
 
     err_close_msg = "<p>Could not create user.\n<p>" + \
@@ -800,27 +805,13 @@ def do_create_user(req):
         return
 
     # make sure user doesn't already exist
-    user_dir = req.config.data_dir + "/users"
-    try:
-        user_files = os.listdir( user_dir )
-    except:
-        msg = "Error: could not read user files from " + user_dir
+    users = get_object_list(req, "user")
+    if name in users:
+        msg = "Error: user account '%s' already exists." % name
         log_this(msg)
         req.html.append(req.html_error(req.html_escape(msg)))
         req.html.append(err_close_msg)
         return
-
-    for ufile in user_files:
-        if not ufile.startswith("user-"):
-            continue
-        # strip "user-" and ".json"
-        existing_name = ufile[5:-5]
-        if name == existing_name:
-            msg = "Error: user account '%s' already exists." % name
-            log_this(msg)
-            req.html.append(req.html_error(req.html_escape(msg)))
-            req.html.append(err_close_msg)
-            return
 
     # make sure that passwords match
     if password != password2:
@@ -869,6 +860,354 @@ def do_create_user(req):
             (req.page_url, req.page_name))
     return
 
+
+def do_edit_user_form(req):
+    # show user edit form
+    show_header(req, "LabControl User Account edit")
+    req.html.append("""<FORM METHOD="POST" ACTION="%s?action=update_user">
+<table id=loginform><tr><td>
+  Name:</td><td align="right"><INPUT type="text" name="name" width=15></input></td></tr>
+  <tr><td>Password:</td><td align="right"><INPUT type="password" name="password" width=15></input>
+  </td></tr><tr><td> </td><td align="right">
+  <INPUT type="submit" name="login" value="Login"></input>
+  </td></tr></table></FORM>""" % req.page_url)
+    req.html.append("""<br>Please contact &lt;%s&gt; if you want to create an account""" % req.config.admin_contact_str)
+    req.html.append("</td></tr></table>")
+
+def do_update_user(req):
+    show_header(req, "Update User")
+    req.html.append("Should finish do_update_user() function")
+
+def do_remove_user_confirm(req):
+    show_header(req, "Confirm User Removal")
+    req.html.append("Should finish do_remove_user_confirm() function")
+
+
+def do_remove_user(req):
+    show_header(req, "Remove User")
+    req.html.append("Should finish do_remove_user() function")
+
+
+################################################################
+# board management
+
+def do_manage_boards(req):
+    # show a list of boards, with edit and remove buttons
+    # also show a link for adding a board
+    boards = get_object_list(req, "board")
+
+    show_header(req, "Manage boards")
+
+    req.html.append("""Manage LabControl boards using the table below.<p>""")
+
+    # show a list of boards, with edit and remove buttons
+    req.html.append('<table class="boards_table" border="1" style="border-collapse: collapse; padding: 5px" >\n<tr>\n')
+    req.html.append("  <th>Name</th><th>Description</th>\n</tr>\n")
+    for board in boards:
+        req.html.append("<tr>\n")
+        bmap = get_object_map(req, "board", board)
+        edit_link = req.config.url_base + "/Admin?action=edit_board_form&board=" + board
+        remove_link = req.config.url_base + "/Admin?action=remove_board_confirm&board=" + board
+
+        req.html.append('  <td valign="top" align="center" style="padding: 5px"><b>%s</b></td>\n' % board)
+        req.html.append('  <td valign="top" style="padding: 5px">%(description)s</td>\n' % bmap)
+        req.html.append('  <td valign="top" style="padding: 5px"><a href="%s">Edit</a> | <a href="%s">Remove</a></td>\n' % (edit_link,remove_link))
+        req.html.append("</tr>\n")
+
+    req.html.append("</table>")
+
+    req.html.append('<p>Or, you can: <a href="%s?action=add_board_form">Add a board</a>' % req.page_url)
+
+    req.html.append('<p><hr><p>Click to return to <a href="%s">%s</a> page' % \
+            (req.page_url, req.page_name))
+
+    req.show_footer()
+
+
+###########################
+# here are the global field lists for boards
+board_field_list = ["description", "ip_addr", "host", "user", "password",
+        "power_controller", "power_measurement", "serial_endpoints"]
+
+board_cmd_field_list = ["command_status", "download", "network_status", "run",
+        "upload"]
+
+
+def do_add_board_form(req):
+    # show form for adding a board
+    show_header(req, "Create LabControl Board")
+    req.html.append("""Please enter the data for the new board.
+<p><i>Note: Names may only include letters, numbers, and the following
+characters: _ - . @<i>
+<p>
+""")
+
+    # can provide default values here, just provide an empty name for now
+    bmap = { "name": "", "description": "" }
+    req.html.append(board_form(req, "add_board", bmap))
+
+    req.html.append('<p>Click to return to <a href="%s/Admin">Admin</a> page.' %
+                         (req.page_url))
+
+def do_add_board(req):
+    show_header(req, "Add Board")
+
+    err_msg = "<p>Could not create board.\n<p>" + \
+                    'Click to return to <a href="%s">%s</a>' % \
+                         (req.page_url, req.page_name)
+
+    # process new board data
+    name = req.form.getfirst("name", "")
+    log_this("Trying to create board: %s" % name)
+
+    if not name:
+        msg = "Error: empty board name '%s'" % name
+        log_this(msg)
+        req.html.append(req.html_error(req.html_escape(msg)))
+        req.html.append(err_msg)
+        return
+
+    still_ok = True
+    allowed_re_pat = "^[\w_-]+$"
+    if not re.match(allowed_re_pat, name):
+        msg = "Error: board name '%s' has disallowed chars.  Only letters, numbers, _, and are allowed." % name
+        log_this(msg)
+        req.html.append(req.html_error(req.html_escape(msg)))
+        req.html.append(err_msg)
+        return
+
+    # make sure the name doesn't already exist
+    boards = get_object_list(req, "board")
+    if name in boards:
+        msg = "Error: board '%s' already exists." % name
+        log_this(msg)
+        req.html.append(req.html_error(msg))
+        req.html.append(err_msg)
+        return
+
+    board_map = {"name": name, "description": "", "AssignedTo": "nobody"}
+    for field in board_field_list:
+        if field == "name":
+            continue
+        value = req.form.getfirst(field, "")
+        if value:
+            board_map[field] = value
+
+    for cmd_field in board_cmd_field_list:
+        value = req.form.getfirst(cmd_field+"_cmd", "")
+        if value:
+            board_map[cmd_field+"_cmd"] = value
+
+    msg = save_object_data(req, "board", name, board_map)
+    if msg:
+        log_this(msg)
+        req.html.append(req.html_error(msg))
+        req.html.append(err_msg)
+        return
+
+    req.html.append('You successfully created board: %s\n<p>\n' % name)
+    req.html.append('<p>Click to return to <a href="%s?action=manage_boards">Manage Boards</a> page' %  req.page_url)
+    req.html.append('<p>Return to <a href="%s/Admin">Admin</a> page.' %
+                         (req.page_url))
+    return
+
+def board_form(req, action, bmap):
+    html = """<FORM METHOD="POST" ACTION="%s?action=%s">
+<table id=create_board_form>
+""" % (req.page_url, action)
+
+    if action == "add_board":
+        html += """<tr><td>Name:</td><td align="right"><INPUT type="text" name="name" width=15></input></td></tr>"""
+    else:
+        name = bmap["name"]
+        html += """<tr><td>Name:</td><td><b>%s</b>
+          <INPUT type="hidden" name="name" value="%s"></input>
+          </td></tr>
+""" % (name, name)
+
+    for field in board_field_list:
+        value = bmap.get(field, "")
+        html += """
+          <tr><td>%s:</td><td align="right"><INPUT type="text" name="%s" value="%s" width=40></input></td></tr>
+""" % (field, field, value)
+
+    for cmd_field in board_cmd_field_list:
+        value = bmap.get(cmd_field, "")
+        html += """<tr><td>%s_cmd:</td><td align="right"><INPUT type="text" name="%s_cmd" value="%s" width=60></input></td></tr>
+""" % (cmd_field, cmd_field, value)
+
+    if action == "add_board":
+        button_label = "Create Board"
+    else:
+        button_label = "Update Board"
+
+    html += """
+    <tr><td> </td>
+    <td> <INPUT type="submit" value="%s"></input>
+    <a href="%s">Cancel</a></input></td></tr>
+</table></FORM>""" % (button_label, req.page_url)
+
+    return html
+
+
+def do_edit_board_form(req):
+    show_header(req, "Edit Board")
+
+    err_msg = """Could not show edit board form<br>
+Click to return to <a href="%s?action=manage_boards">"Manage Boards</a> page
+""" % req.page_url
+
+    board = req.form.getfirst("board", "")
+    if not board:
+        msg = "Error: missing name of board to add"
+        req.html.append(req.html_error(msg))
+        req.html.append(err_msg)
+        return
+
+    bmap = get_object_map(req, "board", board)
+    if not bmap:
+        msg = "Error: invalid board name '%s'" % board
+        req.html.append(req.html_error(msg))
+        req.html.append(err_msg)
+        return
+
+    req.html.append(board_form(req, "update_board", bmap))
+
+    req.html.append('<p>Click to return to <a href="%s?action=manage_boards">Manage Boards</a> page' %  req.page_url)
+    req.html.append('<p>Return to <a href="%s/Admin">Admin</a> page.' %
+                         (req.page_url))
+
+def do_update_board(req):
+    show_header(req, "Update Board")
+
+    err_msg = "<p>Could not update board.\n<p>" + \
+                    'Click to return to <a href="%s">%s</a>' % \
+                         (req.page_url, req.page_name)
+
+    # process updated data
+    name = req.form.getfirst("name", "")
+    log_this("Updating board: '%s'" % name)
+
+    board_map = get_object_map(req, "board", name)
+
+    for field in board_field_list:
+        if field == "name":
+            continue
+        value = req.form.getfirst(field, "")
+        if value:
+            board_map[field] = value
+
+    for cmd_field in board_cmd_field_list:
+        value = req.form.getfirst(cmd_field+"_cmd", "")
+        if value:
+            board_map[cmd_field+"_cmd"] = value
+
+    msg = save_object_data(req, "board", name, board_map)
+    if msg:
+        log_this(msg)
+        req.html.append(req.html_error(msg))
+        req.html.append(err_msg)
+        return
+
+    req.html.append('You successfully updated board: %s\n<p>\n' % name)
+    req.html.append('<p>Click to return to <a href="%s?action=manage_boards">Manage Boards</a> page' %  req.page_url)
+    req.html.append('<p>Return to <a href="%s/Admin">Admin</a> page.' %
+                         (req.page_url))
+    return
+
+def do_remove_board_confirm(req):
+    show_header(req, "Confirm board removal")
+
+    board = req.form.getfirst("board", "")
+    if not board:
+        msg = "Error: missing board to confirm removal of"
+        req.html.append(req.html_error(msg))
+        req.html.append("Could not remove board" + \
+              'Click to return to <a href="%s">%s</a>' % \
+                         (req.page_url, req.page_name))
+        return
+
+    bmap = get_object_map(req, "board", board)
+    log_this("bmap=%s" % bmap)
+    desc = bmap["description"]
+
+    # ask for confirmation before removing the board
+    req.html.append("Confirm that you really want to remove board '%s'\n<p>" % board)
+    req.html.append("Description: '%s'\n<p>" % desc)
+    req.html.append("""<FORM METHOD="POST" ACTION="%s?action=remove_board&board=%s">
+<INPUT type="submit" name="removeboard" value="Remove Board"></input>
+<a href="%s">Cancel</a>
+</FORM>""" % (req.page_url, board, req.page_url))
+    req.html.append('<p>Click to return to <a href="%s?action=manage_boards">Manage Boards</a> page' %  req.page_url)
+    req.html.append('<p>Return to <a href="%s/Admin">Admin</a> page.' %
+                         (req.page_url))
+    return
+
+
+def do_remove_board(req):
+    show_header(req, "Remove Board")
+
+    board = req.form.getfirst("board", "")
+    if not board:
+        msg = "Error: missing board to confirm removal of"
+        req.html.append(req.html_error(msg))
+        req.html.append("Could not remove board" + \
+              'Click to return to <a href="%s">%s</a>' % \
+                         (req.page_url, req.page_name))
+        return
+
+    file_path = "%s/boards/board-%s.json" %  (req.config.data_dir, board)
+
+    msg = None
+    try:
+        os.remove(file_path)
+        log_this("Removed file %s" % file_path)
+    except OSError:
+        msg = "Error: Could not remove board file for '%s'" % board
+
+    if msg:
+        req.html.append(req.html_error(msg))
+    else:
+        req.html.append("Board '%s' removed." % board)
+
+    req.html.append('<p>Click to return to <a href="%s?action=manage_boards">Manage Boards</a> page' %  req.page_url)
+    req.html.append('<p>Return to <a href="%s/Admin">Admin</a> page.' %
+                         (req.page_url))
+    return
+
+
+################################################################
+# resource management
+
+def do_manage_resources(req):
+    # show a list of resources, with edit and remove buttons
+    # also show a link for adding a resource
+    show_header(req, "Manage Resources")
+    req.html.append("Should finish do_manage_resources() function")
+
+def do_add_resource_form(req):
+    show_header(req, "Add Resource")
+    req.html.append("Should finish do_add_resource_form() function")
+
+def do_add_resource(req):
+    show_header(req, "Add Resource")
+    req.html.append("Should finish do_add_resource() function")
+
+def do_edit_resource_form(req):
+    show_header(req, "Edit Resource")
+    req.html.append("Should finish do_edit_resource_form() function")
+
+def do_update_resource(req):
+    show_header(req, "Update Resource")
+    req.html.append("Should finish do_update_resource() function")
+
+def do_remove_resource_confirm(req):
+    show_header(req, "Confirm Resource Removal")
+    req.html.append("Should finish do_remove_resource_confirm() function")
+
+def do_remove_resource(req):
+    show_header(req, "Remove Resource")
+    req.html.append("Should finish do_remove_resource() function")
 
 def get_timestamp():
     t = time.time()
@@ -1980,14 +2319,14 @@ def return_api_object_list(req, obj_type):
     obj_list = get_object_list(req, obj_type)
     req.send_api_list_response(obj_list)
 
-# read data from json file (from data/{obj_type}s/{obj_type}-{obj_name}.json)
+# read data from json file (from data/{obj_type}s/{obj_type}-{name}.json)
 # log any errors encountered
-def get_object_data(req, obj_type, obj_name):
-    filename = obj_type + "-" + obj_name + ".json"
-    file_path = "%s/%ss/%s-%s.json" %  (req.config.data_dir, obj_type, obj_type, obj_name)
+def get_object_data(req, obj_type, name):
+    filename = obj_type + "-" + name + ".json"
+    file_path = "%s/%ss/%s" %  (req.config.data_dir, obj_type, filename)
 
     if not os.path.isfile(file_path):
-        msg = "%s object '%s' in not recognized by the server" % (obj_type, obj_name)
+        msg = "%s object '%s' in not recognized by the server" % (obj_type, name)
         msg += "- file_path was '%s'" % file_path
         log_this(msg)
         return {}
@@ -1996,7 +2335,7 @@ def get_object_data(req, obj_type, obj_name):
     try:
         data = open(file_path, "r").read()
     except:
-        msg = "Could not retrieve information for %s '%s'" % (obj_type, obj_name)
+        msg = "Could not retrieve information for %s '%s'" % (obj_type, name)
         msg += "- file_path was '%s'" % file_path
         log_this(msg)
         return {}
@@ -2060,8 +2399,14 @@ def get_object_map(req, obj_type, obj_name):
         log_this(msg)
         return {}
 
+    try:
+        assigned_to = obj_map["AssignedTo"]
+    except KeyError:
+        clear_reservation(req, obj_map)
+        assigned_to = "nobody"
+
     # this might cause this to get called too often...
-    if obj_type == "board" and obj_map["AssignedTo"] != "nobody":
+    if obj_type == "board" and assigned_to != "nobody":
         if check_reservation_expiry(req, obj_map):
             # reload the data, it just changed
             # note: recursion is ugly
@@ -3815,15 +4160,27 @@ def handle_request(environ, req):
     #req.add_to_message("in main request loop: action='%s'<br>" % action)
 
     # perform action
-    action_list = ["show", "api", "raw",
+    # keep this for reference
+    old_action_list = ["show", "api", "raw",
             "add_board", "add_resource", "put_request",
             "query_objects",
             "get_board", "get_resource", "get_request",
-            "remove_board", "remove_resource", "remove_request",
-            "update_board", "update_resource", "update_request",
+            "remove_request", "update_request",
             "put_log", "get_log",
-            "login_form", "login", "user_editform", "logout",
-            "create_user_form", "create_user"]
+            "user_edit_form", "create_user_form", "create_user"]
+
+    action_list = ["show", "api", "raw",
+            "manage_boards", "add_board_form", "add_board",
+            "edit_board_form", "update_board",
+            "remove_board_confirm", "remove_board",
+            "manage_resources", "add_resource_form", "add_resource",
+            "edit_resource_form", "update_resource",
+            "remove_resource_confirm", "remove_resource",
+            "login_form", "login", "logout",
+            "manage_users", "add_user_form", "add_user",
+            "edit_user_form", "update_user",
+            "remove_user_confirm", "remove_user"
+            ]
 
     # map action names to "do_<action>" functions
     if action in action_list:
