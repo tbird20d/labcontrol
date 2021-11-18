@@ -312,7 +312,7 @@ class page_data_class:
         if self.req.user.name=="not-logged-in":
             html = """<a href="%s?action=login_form">Login</a>""" % (self.req.page_url)
         else:
-            html =  """<a href="%s?action=edit_user_form">%s</a><br>
+            html =  """<a href="%s?action=edit_user_user_form">%s</a><br>
                        <a href="%s?action=logout">Logout</a>""" % \
             (self.req.page_url, self.req.user.name, self.req.page_url)
         return html
@@ -321,7 +321,7 @@ class page_data_class:
         if self.req.user.name=="not-logged-in":
             return self.login_link()
         else:
-            html =  """<a href="%s?action=edit_user_form">%s</a> <a href="%s?action=logout">Logout</a>""" % (self.req.page_url, self.req.user.name, self.req.page_url)
+            html =  """<a href="%s?action=edit_user_user_form">%s</a> <a href="%s?action=logout">Logout</a>""" % (self.req.page_url, self.req.user.name, self.req.page_url)
         return html
 
     def logout_link(self):
@@ -367,6 +367,7 @@ class req_class:
         self.config = config
         self.data = page_data_class(self)
         self.header_shown = False
+        self.footer_shown = False
         self.message = ""
         self.page_name = ""
         self.page_url = "page_name_not_set_error"
@@ -406,10 +407,12 @@ class req_class:
         page_name = re.sub(" ","_",page_name)
         return self.config.url_base+"/"+page_name
 
-    def html_escape(self, str):
+    def html_escape(self, str, quote=False):
         str = re.sub("&","&amp;",str)
         str = re.sub("<","&lt;",str)
         str = re.sub(">","&gt;",str)
+        str = re.sub('"',"&#34;",str)
+        str = re.sub("'","&#39;",str)
         return str
 
     def add_to_message(self, msg):
@@ -454,6 +457,15 @@ html {
   min-height: 100%%;
 }
 
+table {
+  border-collapse: collapse;
+}
+
+th, td {
+  border: 1px solid black;
+  padding: 3px 5px 3px;
+}
+
 #navbar{width:100%%;}
 .alignleft {
   background-color:#0fffff;
@@ -485,6 +497,7 @@ html {
         ver_str = self.data.version()
         self.html.append('<div align="center"><font size="-2">LabControl server v. %s</font></div>' % ver_str)
         self.html.append("</body>")
+        self.footer_shown = True
 
     def html_error(self, msg):
         return "<font color=red>" + msg + "</font><BR>"
@@ -743,53 +756,224 @@ def do_logout(req):
 def do_manage_users(req):
     # show a list of users, with edit and remove buttons
     # also show a link for adding a user
-    dlog_this("Got to do_manage_users")
-    show_header(req, "Manage Users")
-    req.html.append("Should finish do_manage_users() function")
+    users = get_object_list(req, "user")
+
+    show_header(req, "Manage users")
+
+    req.html.append("""Manage LabControl user accounts using the table below.<p>""")
+
+    # show a list of users, with edit and remove buttons
+    req.html.append('<table class="users_table">\n<tr>\n')
+    req.html.append('  <th>Name</th><th>Is Admin?</th><th>Action:</th></tr>\n')
+    for user in users:
+        umap = get_object_map(req, "user", user)
+
+        edit_link = req.config.url_base + "/Admin?action=edit_user_admin_form&user=" + user
+        remove_link = req.config.url_base + "/Admin?action=remove_user_confirm&user=" + user
+        view_link = req.config.url_base + "/Admin?action=view_user_config&user=" + user
+
+        req.html.append('<tr><td valign="top" align="center"><b>%s</b></td>\n' % user)
+
+        admin = umap.get("admin", "False")
+        if admin == "True":
+            admin_str = "yes"
+        else:
+            admin_str = ""
+
+        req.html.append('  <td valign="top" align="center"><b>%s</b></td>\n' % admin_str)
+
+        req.html.append('  <td valign="top"><a href="%s">View</a> | <a href="%s">Edit</a> | <a href="%s">Remove</a></td>\n' % (view_link, edit_link, remove_link))
+        req.html.append("</tr>\n")
+
+    req.html.append("</table>")
+
+    req.html.append('<p>Or, you can: <a href="%s?action=add_user_form">Add a User</a>' % req.page_url)
+
+    req.html.append('<p><hr><p>Click to return to <a href="%s">%s</a> page' % \
+            (req.page_url, req.page_name))
+
+    req.show_footer()
+
     return
+
+def do_view_user_config(req):
+    show_header(req, "View User Config")
+
+    manage_url = "%s?action=manage_users" % req.page_url
+
+    err_close_msg = "<p>Could not view user account.\n<p>" + \
+                    'Click to return to <a href="%s">Manage Users</a> page' % \
+                         manage_url
+
+    user = req.form.getfirst("user", "")
+    if not user:
+        msg = "Error: Missing user"
+        req.html.append(req.html_error(msg))
+        req.html.append(err_close_msg)
+        return
+
+    umap = get_object_map(req, "user", user)
+    admin = umap.get("admin", "False")
+    if admin == "True":
+        admin_str = "yes"
+    else:
+        admin_str = "no"
+
+    auth_token = umap.get("auth_token", "<missing>")
+
+    edit_link = req.config.url_base + "/Admin?action=edit_user_admin_form&user=" + user
+    remove_link = req.config.url_base + "/Admin?action=remove_user_confirm&user=" + user
+
+    # show user account data
+    req.html.append("Account data for user '<b>%s</b>'" % user)
+    req.html.append('<table class="users_table">')
+    req.html.append("""
+      <tr><td>Name</td><td>%s</td></tr>
+      <tr><td>Password</td><td>XXXXXXXX</td></tr>
+      <tr><td>Is Admin</td><td>%s</td></tr>
+      <tr><td>Auth Token</td><td>%s</td></tr>
+</table>
+""" % (user, admin_str, auth_token))
+
+    req.html.append('<p><a href="%s">Edit User account</a> | <a href="%s">Remove this User account</a>\n' % (edit_link, remove_link))
+
+    req.html.append('<p><hr><p>Click to return to <a href="%s">Manage Users</a> page' % manage_url)
+
+    return
+
+# The user is not allowed to edit everything the admin can edit
+# and the info on a 'create' form is different than the info on
+# an 'edit' form.  This makes this routine a bit tricky.
+def user_form(req, action, umap, user_is_self=False):
+    html = """<FORM METHOD="POST" ACTION="%s?action=%s">
+<table id=create_user_form>
+""" % (req.page_url, action)
+
+    if action == "add_user":
+        html += """<tr><td>Name:</td><td><INPUT type="text" name="name" width=30></input></td></tr>"""
+        button_label = "Create User Account"
+    else:
+        name = umap["name"]
+        html += """<tr><td>Name:</td><td><b>%s</b>
+          <INPUT type="hidden" name="name" value="%s"></input>
+          </td></tr>\n""" % (name, name)
+        button_label = "Update User Account"
+
+    admin = umap.get("admin", "False")
+    if admin == "True":
+        admin_str = "checked"
+    else:
+        admin_str = ""
+
+    auth_token = umap.get("auth_token", "")
+
+    html += """<tr><td>Password:</td><td>
+    <INPUT type="password" name="password" width=30></input>
+  </td></tr>
+  <tr><td>Password (repeat):</td><td>
+    <INPUT type="password" name="password2" width=30></input>
+  </td></tr>"""
+
+    if user_is_self:
+        # user can't change their own admin status
+        html += "<tr><td>Is Admin?</td><td>%s</td></tr>" % admin
+    else:
+        html += """
+  <tr><td>Is Admin?</td><td>
+    <INPUT type="checkbox" name="admin" value="True" %s></input>
+  </td></tr>""" % admin_str
+
+    # On create, an auth_token is generated by do_add_user()
+    # so, it's not displayed on the 'create' form
+    if action == "update_user":
+        if user_is_self:
+            # The user can't update the token themselves, but can see it.
+            html += """<tr><td>Auth Token:</td><td>%s</td></tr>""" % auth_token
+        else:
+            # an administrator can edit it
+            html += """<tr><td>Auth Token:</td><td align="right">
+          <INPUT type="text" name="auth_token" value="%s" width=60></input>
+  </td></tr>\n""" % auth_token
+
+    html += """
+    <tr><td> </td>
+    <td> <INPUT type="submit" value="%s"></input>
+    <a href="%s">Cancel</a></input></td></tr>
+</table></FORM>""" % (button_label, req.page_url)
+
+    return html
+
 
 def do_add_user_form(req):
     # show create user login form
     show_header(req, "Create LabControl User Account")
     req.html.append("""Please enter the data for the new user.
-<p><i>Note: Names may only include letters, numbers, and the following
-characters: _ - . @<i>
+<p>Note: Names may only include letters, numbers, and the following
+characters: '_', '-', '.', '@'
 <p>
 """)
 
-    req.html.append("""<FORM METHOD="POST" ACTION="%s?action=add_user">
-<table id=createuserform><tr><td>
-  Name:</td><td align="right"><INPUT type="text" name="name" width=15></input></td></tr>
-  <tr><td>Password:</td><td align="right">
-          <INPUT type="password" name="password" width=15></input>
-  </td></tr>
-  <tr><td>Password (repeat):</td><td align="right">
-          <INPUT type="password" name="password2" width=15></input>
-  </td></tr>
-  <tr><td>Is Admin?</td><td align="right">
-                <INPUT type="checkbox" name="admin" value="True"></input>
-  </td></tr>
-  <tr><td> </td><td align="right">
-                <INPUT type="submit" name="createuser" value="Create User"></input>
-  </td></tr></table></FORM>""" % req.page_url)
-    req.html.append("</td></tr></table>")
+    umap = { "name": "" }
+    req.html.append(user_form(req, "add_user", umap))
+
     req.html.append('<p>Click to return to <a href="%s/Admin">Admin</a> page.' %
                          (req.page_url))
 
+def do_edit_user_admin_form(req):
+    # show user edit form
+    show_header(req, "LabControl User Account edit")
+
+    name = req.form.getfirst("user", "")
+    if not name:
+        msg = "Error: missing user name"
+        log_this(msg)
+        req.html.append(req.html_error(req.html_escape(msg)))
+        req.html.append(err_msg)
+        return
+
+    req.html.append("""Edit the user by editing the fields below.<br>
+    If the password fields are left blank, the password is not changed.<br>
+    To generate a new random Auth Token, put the word 'new' in the input
+    field.""")
+
+    umap = get_object_map(req, "user", name)
+    req.html.append(user_form(req, "update_user", umap, False))
+
+    req.html.append('<p><hr>Click to return to <a href="%s?action=manage_users">Manage Users</a> page' %  req.page_url)
+    req.html.append('<p>Return to <a href="%s/Admin">Admin</a> page.' %
+                         (req.page_url))
+
+def do_edit_user_user_form(req):
+    # show user edit form
+    # this can only be used for changing a user's own attributes
+    show_header(req, "LabControl User Account edit")
+
+    req.html.append("""Edit the user by editing the fields below.<br>
+    If the password fields are left blank,
+    the password is not changed.""")
+
+    name = req.user.name
+    umap = get_object_map(req, "user", name)
+    req.html.append(user_form(req, "update_user", umap, True))
+
+    req.html.append('<p><hr>Return to <a href="%s">%s</a> page.' %
+                         (req.page_url, req.page_name))
 
 def do_add_user(req):
     show_header(req, "LabControl Create User")
 
+    manage_url = "%s?action=manage_users" % req.page_url
+
     err_close_msg = "<p>Could not create user.\n<p>" + \
-                    'Click to return to <a href="%s">%s</a>' % \
-                         (req.page_url, req.page_name)
+                    'Go "Back" to return to the "add user" form<br>' \
+                    'Or click to return to <a href="%s">Manage Users</a> page' % \
+                         manage_url
 
     # process create user action
     name = req.form.getfirst("name", "")
-    password = req.form.getfirst("password", "bad")
-    password2 = req.form.getfirst("password2", "bad2")
+    password = req.form.getfirst("password", "not-provided")
+    password2 = req.form.getfirst("password2", "not-provided2")
     admin = req.form.getfirst("admin", "False")
-    req.add_to_message("processing create user form: name=%s<br>" % name)
     dlog_this("name=%s" % name)
     dlog_this("admin=%s" % admin)
 
@@ -822,70 +1006,163 @@ def do_add_user(req):
         return
 
     # process admin flag
-    req.add_to_message("admin=%s" % admin)
-    log_this("admin=%s" % admin)
     if admin == "True":
-        admin_field_str = ',\n    "admin": "True"'
-    else:
-        admin_field_str = "\n"
+        log_this("Creating user account '%s' with admin privileges!" % user)
 
-    # everything looks OK, create a token and save the data
+    # create auth_token
     auth_token = str(uuid.uuid4())
 
-    filepath = user_dir + "/user-" + name + ".json"
+    # everything looks OK, save the data
+    umap = { "name": name, "password": password, "auth_token": auth_token,
+            "admin": admin }
 
-    # sanitize the password
-    # escape any double-quotes in the password (for putting into a json string)
-    if '"' in password:
-        password = password.replace('"', '\\"')
+    # save the data to the json file
+    msg = save_object_data(req, "user", name, umap)
 
-    try:
-        with open(filepath, "w") as fd:
-            fd.write("""{
-    "name": "%s",
-    "password": "%s",
-    "auth_token": "%s"%s
-}
-""" % (name, password, auth_token, admin_field_str))
-    except IOError:
-        msg = "Error: passwords do not match!"
+    if msg:
         log_this(msg)
-        req.html.append(req.html_error(msg))
+        req.html.append(req.html_error(req.html_escape(msg)))
         req.html.append(err_close_msg)
         return
 
-
     req.html.append('You successfully created user account: %s\n<p>\n' % name)
-    req.html.append('Click to return to <a href="%s">%s</a>' % \
-            (req.page_url, req.page_name))
+    req.html.append('Click to return to <a href="%s">Manage Users</a>' % \
+            manage_url)
     return
-
-
-def do_edit_user_form(req):
-    # show user edit form
-    show_header(req, "LabControl User Account edit")
-    req.html.append("""<FORM METHOD="POST" ACTION="%s?action=update_user">
-<table id=loginform><tr><td>
-  Name:</td><td align="right"><INPUT type="text" name="name" width=15></input></td></tr>
-  <tr><td>Password:</td><td align="right"><INPUT type="password" name="password" width=15></input>
-  </td></tr><tr><td> </td><td align="right">
-  <INPUT type="submit" name="login" value="Login"></input>
-  </td></tr></table></FORM>""" % req.page_url)
-    req.html.append("""<br>Please contact &lt;%s&gt; if you want to create an account""" % req.config.admin_contact_str)
-    req.html.append("</td></tr></table>")
 
 def do_update_user(req):
     show_header(req, "Update User")
-    req.html.append("Should finish do_update_user() function")
+
+    manage_url = "%s?action=manage_users" % req.page_url
+
+    err_close_msg = "<p>Could not update user.\n<p>" + \
+                    'Click to return to <a href="%s">Manage Users</a> page' % \
+                         manage_url
+
+    # process create user action
+    name = req.form.getfirst("name", "")
+    password = req.form.getfirst("password", "not-provided")
+    password2 = req.form.getfirst("password2", "not-provided2")
+    admin = req.form.getfirst("admin", "False")
+    auth_token = req.form.getfirst("auth_token", "not-provided")
+
+    dlog_this("name=%s" % name)
+    dlog_this("admin=%s" % admin)
+
+    # make sure user already exists
+    users = get_object_list(req, "user")
+    if name not in users:
+        msg = "Error: user account '%s' does not exists." % name
+        log_this(msg)
+        req.html.append(req.html_error(req.html_escape(msg)))
+        req.html.append(err_close_msg)
+        return
+
+    umap = get_object_map(req, "user", name)
+
+    # update password, if the user supplied one
+    if password and password != "not-provided":
+        # make sure that passwords match
+        if password != password2:
+            msg = "Error: passwords do not match!"
+            log_this(msg)
+            req.html.append(req.html_error(msg))
+            req.html.append(err_close_msg)
+            return
+        umap["password"] = password
+
+    # process admin flag
+    if admin == "True":
+        admin_field_str = ',\n    "admin": "True"'
+        log_this("admin=%s" % admin)
+    else:
+        admin_field_str = "\n"
+    umap["admin"] = admin
+
+    # process the token
+    if auth_token != "not-provided":
+        if auth_token == "new":
+            auth_token = str(uuid.uuid4())
+
+        umap["auth_token"] = auth_token
+
+    # save data back to json file
+    msg = save_object_data(req, "user", name, umap)
+
+    if msg:
+        log_this(msg)
+        req.html.append(req.html_error(req.html_escape(msg)))
+        req.html.append(err_close_msg)
+        return
+
+    req.html.append('You successfully updated user account: %s\n<p>\n' % name)
+    req.html.append('Click to return to <a href="%s">Manage Users</a>' % \
+            manage_url)
+
+    return
 
 def do_remove_user_confirm(req):
     show_header(req, "Confirm User Removal")
-    req.html.append("Should finish do_remove_user_confirm() function")
+
+    manage_url = "%s?action=manage_users" % req.page_url
+
+    user = req.form.getfirst("user", "")
+    if not user:
+        msg = "Error: missing user to confirm removal of"
+        req.html.append(req.html_error(msg))
+        req.html.append("Could not remove user" + \
+              'Click to return to <a href="%s">Manage Users</a> page' % \
+                         manage_url)
+        return
+
+    # ask for confirmation before removing the user
+    req.html.append("Confirm that you really want to remove the user account for:<br><ul><b>%s</b></ul>\n<p>" % user)
+    req.html.append("""<FORM METHOD="POST" ACTION="%s?action=remove_user&user=%s">
+<INPUT type="submit" name="removeuser" value="Remove User Account"></input>
+<a href="%s">Cancel</a>
+</FORM>""" % (req.page_url, user, manage_url))
+    req.html.append('<p>Click to return to <a href="%s">Manage Users</a> page' %  manage_url)
+    return
 
 
 def do_remove_user(req):
     show_header(req, "Remove User")
-    req.html.append("Should finish do_remove_user() function")
+
+    user = req.form.getfirst("user", "")
+    manage_url = "%s?action=manage_users" % req.page_url
+    if not user:
+        msg = "Error: missing user to confirm removal of"
+        req.html.append(req.html_error(msg))
+        req.html.append("Could not remove user" + \
+              'Click to return to <a href="%s">Manage Users</a>' % manage_url)
+        return
+
+    file_path = "%s/users/user-%s.json" %  (req.config.data_dir, user)
+
+    msg = None
+    try:
+        os.remove(file_path)
+        log_this("Removed file %s" % file_path)
+    except OSError:
+        msg = "Error: Could not remove user file for '%s'" % user
+
+    # Remove any reservations held by this user
+    if not msg:
+        boards = get_object_list(req, "board")
+        for board in boards:
+            bmap = get_object_map(req, "board", board)
+            if bmap.get("AssignedTo", "nobody") == user:
+                clear_reservation(req, bmap)
+
+    if msg:
+        req.html.append(req.html_error(msg))
+    else:
+        req.html.append("User account '<b>%s</b>' removed." % user)
+
+    req.html.append('<p>Click to return to <a href="%s">Manage Users</a> page' % manage_url)
+    req.html.append('<p>Return to <a href="%s/Admin">Admin</a> page.' %
+                         req.page_url)
+    return
 
 
 ################################################################
@@ -901,17 +1178,19 @@ def do_manage_boards(req):
     req.html.append("""Manage LabControl boards using the table below.<p>""")
 
     # show a list of boards, with edit and remove buttons
-    req.html.append('<table class="boards_table" border="1" style="border-collapse: collapse; padding: 5px" >\n<tr>\n')
-    req.html.append("  <th>Name</th><th>Description</th>\n</tr>\n")
+    req.html.append('<table class="boards_table">\n<tr>\n')
+    req.html.append("  <th>Name</th><th>Description</th><th>Action:</th>\n</tr>\n")
     for board in boards:
         req.html.append("<tr>\n")
         bmap = get_object_map(req, "board", board)
+        description = bmap.get("description", "")
         edit_link = req.config.url_base + "/Admin?action=edit_board_form&board=" + board
         remove_link = req.config.url_base + "/Admin?action=remove_board_confirm&board=" + board
+        view_link = req.config.url_base + "/Admin?action=view_board_config&board=" + board
 
-        req.html.append('  <td valign="top" align="center" style="padding: 5px"><b>%s</b></td>\n' % board)
-        req.html.append('  <td valign="top" style="padding: 5px">%(description)s</td>\n' % bmap)
-        req.html.append('  <td valign="top" style="padding: 5px"><a href="%s">Edit</a> | <a href="%s">Remove</a></td>\n' % (edit_link,remove_link))
+        req.html.append('  <td valign="top" align="center"><b>%s</b></td>\n' % board)
+        req.html.append('  <td valign="top">%s</td>\n' % description)
+        req.html.append('  <td valign="top"><a href="%s">View</a> | <a href="%s">Edit</a> | <a href="%s">Remove</a></td>\n' % (view_link, edit_link,remove_link))
         req.html.append("</tr>\n")
 
     req.html.append("</table>")
@@ -929,9 +1208,49 @@ def do_manage_boards(req):
 board_field_list = ["description", "ip_addr", "host", "user", "password",
         "power_controller", "power_measurement", "serial_endpoints"]
 
-board_cmd_field_list = ["command_status", "download", "network_status", "run",
-        "upload"]
+board_cmd_field_list = ["command_status_cmd", "network_status_cmd",
+        "run_cmd", "upload_cmd", "download_cmd"]
 
+def do_view_board_config(req):
+    show_header(req, "View Board Config")
+
+    manage_url = "%s?action=manage_boards" % req.page_url
+
+    err_close_msg = "<p>Could not view board config.\n<p>" + \
+                    'Click to return to <a href="%s">Manage Boards</a> page' % \
+                         manage_url
+
+    name = req.form.getfirst("board", "")
+    if not name:
+        msg = "Error: Missing board"
+        req.html.append(req.html_error(msg))
+        req.html.append(err_close_msg)
+        return
+
+    bmap = get_object_map(req, "board", name)
+
+    edit_link = req.config.url_base + "/Admin?action=edit_board_form&board=" + name
+    remove_link = req.config.url_base + "/Admin?action=remove_board_confirm&board=" + name
+
+    # show board data
+    req.html.append("Configuration data for board '<b>%s</b>'" % name)
+    req.html.append('<table class="board_table">')
+
+    for field in board_field_list:
+        value = bmap.get(field, "")
+        req.html.append("<tr><td>%s</td><td>%s</td></tr>\n" % (field, req.html_escape(value)))
+
+    for cmd_field in board_cmd_field_list:
+        value = bmap.get(cmd_field, "")
+        req.html.append("<tr><td>%s</td><td>%s</td></tr>\n" % (cmd_field, req.html_escape(value)))
+
+    req.html.append("</table>")
+
+    req.html.append('<p><a href="%s">Edit Board Config</a> | <a href="%s">Remove this Board</a>\n' % (edit_link, remove_link))
+
+    req.html.append('<p><hr><p>Click to return to <a href="%s">Manage Boards</a> page' % manage_url)
+
+    return
 
 def do_add_board_form(req):
     # show form for adding a board
@@ -994,9 +1313,9 @@ def do_add_board(req):
             board_map[field] = value
 
     for cmd_field in board_cmd_field_list:
-        value = req.form.getfirst(cmd_field+"_cmd", "")
+        value = req.form.getfirst(cmd_field, "")
         if value:
-            board_map[cmd_field+"_cmd"] = value
+            board_map[cmd_field] = value
 
     msg = save_object_data(req, "board", name, board_map)
     if msg:
@@ -1025,16 +1344,19 @@ def board_form(req, action, bmap):
           </td></tr>
 """ % (name, name)
 
+    # need to html_escape the values for the form fields
+    # in case they have wonky chars
+
     for field in board_field_list:
         value = bmap.get(field, "")
-        html += """
-          <tr><td>%s:</td><td align="right"><INPUT type="text" name="%s" value="%s" width=40></input></td></tr>
-""" % (field, field, value)
+        html += """<tr><td>%s:</td><td align="right"><INPUT type="text" name="%s" value="%s" width=40></input></td></tr>
+""" % (field, field, req.html_escape(value, True))
 
     for cmd_field in board_cmd_field_list:
         value = bmap.get(cmd_field, "")
-        html += """<tr><td>%s_cmd:</td><td align="right"><INPUT type="text" name="%s_cmd" value="%s" width=60></input></td></tr>
-""" % (cmd_field, cmd_field, value)
+        dlog_this("cmd_field %s value=%s" % (cmd_field, value))
+        html += """<tr><td>%s:</td><td align="right"><INPUT type="text" name="%s" value="%s" width=100></input></td></tr>
+""" % (cmd_field, cmd_field, req.html_escape(value, True))
 
     if action == "add_board":
         button_label = "Create Board"
@@ -1098,9 +1420,9 @@ def do_update_board(req):
             board_map[field] = value
 
     for cmd_field in board_cmd_field_list:
-        value = req.form.getfirst(cmd_field+"_cmd", "")
+        value = req.form.getfirst(cmd_field, "")
         if value:
-            board_map[cmd_field+"_cmd"] = value
+            board_map[cmd_field] = value
 
     msg = save_object_data(req, "board", name, board_map)
     if msg:
@@ -1809,15 +2131,16 @@ def show_boards(req):
     boards = get_object_list(req, "board")
 
     # show a table of attributes
-    req.html.append('<table class="boards_table" border="1" style="border-collapse: collapse; padding: 5px" >\n<tr>\n')
+    req.html.append('<table class="boards_table">\n<tr>\n')
     req.html.append("  <th>Name</th><th>Description</th>\n</tr>\n")
     for board in boards:
         req.html.append("<tr>\n")
         bmap = get_object_map(req, "board", board)
+        description = bmap.get("description", "")
         board_link = req.config.url_base + "/boards/" + board
 
-        req.html.append('  <td valign="top" align="center" style="padding: 5px"><b><a href="%s">%s</a></b></td>\n' % (board_link, board))
-        req.html.append('  <td valign="top" style="padding: 5px">%(description)s</td>\n' % bmap)
+        req.html.append('  <td valign="top" align="center"><b><a href="%s">%s</a></b></td>\n' % (board_link, board))
+        req.html.append('  <td valign="top">%s</td>\n' % description)
         req.html.append("</tr>\n")
 
     req.html.append("</table>")
@@ -1827,7 +2150,7 @@ def show_board(req, board):
     req.html.append("<H1>Board %s</h1>" % board)
     bmap = get_object_map(req, "board", board)
 
-    req.html.append('<table class="board_table" border="1" style="border-collapse: collapse; padding: 5px" >\n<tr>\n')
+    req.html.append('<table class="board_table">\n<tr>\n')
     # create message area for board operations
     # should I do a popup instead?
     req.html.append("""
@@ -2084,17 +2407,17 @@ def show_resources(req):
     resources = get_object_list(req, "resource")
 
     # show a table of attributes
-    req.html.append('<table class="resources_table" border="1" style="border-collapse: collapse; padding: 5px" >\n<tr>\n')
+    req.html.append('<table class="resources_table">\n<tr>\n')
     req.html.append("  <th>Name</th><th>Description</th>\n</tr>\n")
     for resource in resources:
         req.html.append("<tr>\n")
         rmap = get_object_map(req, "resource", resource)
         res_link = req.config.url_base + "/resources/" + resource
 
-        req.html.append('  <td valign="top" align="center" style="padding: 5px"><b><a href="%s">%s</a></b></td>\n' % (res_link, resource))
+        req.html.append('  <td valign="top" align="center"><b><a href="%s">%s</a></b></td>\n' % (res_link, resource))
         description = rmap.get("description",
                 req.html_error("No description available"))
-        req.html.append('  <td valign="top" style="padding: 5px">%s</td>\n' % description)
+        req.html.append('  <td valign="top">%s</td>\n' % description)
         req.html.append("</tr>\n")
 
     req.html.append("</table>")
@@ -2104,7 +2427,7 @@ def show_resource(req, resource):
     req.html.append("<H1>Resource %s</h1>" % resource)
     rmap = get_object_map(req, "resource", resource)
 
-    req.html.append('<table class="resource_table" border="1" style="border-collapse: collapse; padding: 5px" >\n<tr>\n')
+    req.html.append('<table class="resource_table">\n<tr>\n')
     req.html.append('  <td style="padding: 10px">')
 
     # show attributes here
@@ -2160,14 +2483,14 @@ def show_users(req):
                 res_map[res_user].append(reservation)
 
     # show a table of attributes
-    req.html.append('<table class="user_table" border="1" style="border-collapse: collapse; padding: 5px" >\n<tr>\n')
+    req.html.append('<table class="user_table">\n<tr>\n')
     req.html.append('  <th>Name</th><th>Reservations</th><th>Last access</th>\n</tr>\n')
     for user in users:
         req.html.append("<tr>\n")
         umap = get_object_map(req, "user", user)
         reservations = res_map.get(user, [])
 
-        req.html.append('  <td valign="top" align="center" style="padding: 5px"><h3>%s</h3></td>\n' % umap["name"])
+        req.html.append('  <td valign="top" align="center"><h3>%s</h3></td>\n' % umap["name"])
 
         if reservations:
             req.html.append("""    <td><table>
@@ -2176,9 +2499,9 @@ def show_users(req):
                 req.html.append('    <tr><td>%s</td><td>%s</td><td>%s</td></tr>' % (res[0], res[1], res[2]))
             req.html.append("    </table>\n  </td>")
         else:
-            req.html.append('  <td valign="top" style="padding: 5px"><i>None</i></td>')
+            req.html.append('  <td valign="top"><i>None</i></td>')
 
-        req.html.append(""" <td valign="top" style="padding: 5px"><i>Not implemented yet</i></td>\n""")
+        req.html.append(""" <td valign="top"><i>Not implemented yet</i></td>\n""")
 
         req.html.append("</tr>\n")
 
@@ -2326,7 +2649,7 @@ def get_object_data(req, obj_type, name):
     file_path = "%s/%ss/%s" %  (req.config.data_dir, obj_type, filename)
 
     if not os.path.isfile(file_path):
-        msg = "%s object '%s' in not recognized by the server" % (obj_type, name)
+        msg = "%s object '%s' is not recognized by the server" % (obj_type, name)
         msg += "- file_path was '%s'" % file_path
         log_this(msg)
         return {}
@@ -2399,11 +2722,12 @@ def get_object_map(req, obj_type, obj_name):
         log_this(msg)
         return {}
 
-    try:
-        assigned_to = obj_map["AssignedTo"]
-    except KeyError:
-        clear_reservation(req, obj_map)
-        assigned_to = "nobody"
+    if obj_type == "board":
+        try:
+            assigned_to = obj_map["AssignedTo"]
+        except KeyError:
+            clear_reservation(req, obj_map)
+            assigned_to = "nobody"
 
     # this might cause this to get called too often...
     if obj_type == "board" and assigned_to != "nobody":
@@ -2442,7 +2766,7 @@ def save_object_data(req, obj_type, obj_name, obj_data):
     msg = ""
 
     filename = obj_type + "-" + obj_name + ".json"
-    file_path = "%s/%ss/%s-%s.json" %  (req.config.data_dir, obj_type, obj_type, obj_name)
+    file_path = "%s/%ss/%s" %  (req.config.data_dir, obj_type, filename)
 
     #log_this("in save_object_data: obj_data=%s" % obj_data)
 
@@ -3368,7 +3692,11 @@ def run_timeout(proc):
 # the difference with this command is that it supports running
 # items from the labcontrol utils directory
 def lc_getstatusoutput(req, cmd):
-    program_name=shlex.split(cmd)[0]
+    try:
+        program_name=shlex.split(cmd)[0]
+    except ValueError:
+        msg = req.html_error("Error: Could not parse program name for cmd '%s'\n" % cmd)
+        return (1, msg)
 
     # if program filename is not a path, look for it in the 'utils' dir
     if "/" not in program_name:
@@ -4171,14 +4499,17 @@ def handle_request(environ, req):
 
     action_list = ["show", "api", "raw",
             "manage_boards", "add_board_form", "add_board",
+            "view_board_config",
             "edit_board_form", "update_board",
             "remove_board_confirm", "remove_board",
             "manage_resources", "add_resource_form", "add_resource",
+            "view_resource_config",
             "edit_resource_form", "update_resource",
             "remove_resource_confirm", "remove_resource",
             "login_form", "login", "logout",
             "manage_users", "add_user_form", "add_user",
-            "edit_user_form", "update_user",
+            "view_user_config",
+            "edit_user_admin_form", "edit_user_user_form", "update_user",
             "remove_user_confirm", "remove_user"
             ]
 
@@ -4192,11 +4523,15 @@ def handle_request(environ, req):
             return
 
         action_function(req)
+
+        if not req.footer_shown:
+            req.show_footer()
         return
 
     show_header(req, "LabControl server Error")
     req.html.append(req.html_error("Unknown action '%s'" % action))
-
+    if not req.footer_shown:
+        req.show_footer()
 
 def cgi_main():
     #dlog_this("os.environ='%s'" % os.environ)
