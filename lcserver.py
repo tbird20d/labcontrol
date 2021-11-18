@@ -493,6 +493,8 @@ th, td {
         self.header_shown = True
 
     def show_footer(self):
+        if self.footer_shown:
+            return
         self.show_message()
         ver_str = self.data.version()
         self.html.append('<hr>\n<p>\n<div align="center"><font size="-2">LabControl server v. %s</font></div>' % ver_str)
@@ -2148,7 +2150,6 @@ def show_boards(req):
         req.html.append("</tr>\n")
 
     req.html.append("</table>")
-    req.show_footer()
 
 def show_board(req, board):
     req.html.append("<H1>Board %s</h1>" % board)
@@ -2405,7 +2406,6 @@ function DoReservationOperation(form) {
 
     req.html.append("</td></tr></table>\n")
 
-    req.show_footer()
 
 def show_resources(req):
     resources = get_object_list(req, "resource")
@@ -2425,7 +2425,6 @@ def show_resources(req):
         req.html.append("</tr>\n")
 
     req.html.append("</table>")
-    req.show_footer()
 
 def show_resource(req, resource):
     req.html.append("<H1>Resource %s</h1>" % resource)
@@ -2461,8 +2460,6 @@ def show_resource(req, resource):
     req.html.append("</ul>")
 
     req.html.append("</td></tr></table>\n")
-
-    req.show_footer()
 
 def show_users(req):
     d = {}
@@ -2510,7 +2507,6 @@ def show_users(req):
         req.html.append("</tr>\n")
 
     req.html.append("</table>")
-    req.show_footer()
 
 # show the web ui for objects on the server
 # this is the main human interface to the server
