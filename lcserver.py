@@ -495,7 +495,7 @@ th, td {
     def show_footer(self):
         self.show_message()
         ver_str = self.data.version()
-        self.html.append('<div align="center"><font size="-2">LabControl server v. %s</font></div>' % ver_str)
+        self.html.append('<hr>\n<p>\n<div align="center"><font size="-2">LabControl server v. %s</font></div>' % ver_str)
         self.html.append("</body>")
         self.footer_shown = True
 
@@ -543,7 +543,7 @@ th, td {
     def set_user(self):
         # look up the user using the authorization token and set req.user
 
-        # FIXTHIS - should have a reverse index from auth-token to user name
+        # FIXTHIS (low) - should have a reverse index from auth-token to user name
         # to speed this up.  For now a linear scan of file contents is OK.
         self.user = user_class()
 
@@ -616,7 +616,11 @@ th, td {
                 self.user.name = udata["name"]
             except KeyError:
                 log_this("Error: missing 'name' field in user data file %s, in req.set_user()" % upath)
-            self.user.admin = udata.get("admin", "False")
+            admin = udata.get("admin","")
+            if admin == "True":
+                self.user.admin = True
+            else:
+                self.user.admin = False
 
         dlog_this("in req.set_user: user=%s" % str(self.user.name))
 
@@ -2536,8 +2540,18 @@ def do_show(req):
         req.html.append(file_list_html(req, "files", "logs", ".txt"))
         handled = True
 
+    admin_pages = ["Admin"]
+
     # check for a page from the page directory here
     if os.path.isfile(req.page_filename()):
+        if not req.user.admin and page_name in admin_pages:
+            show_header(req, "Permission Failure")
+            msg = "Error: access to page '%s' requires Administrator privileges (which you do not have)" % page_name
+            show_header(req, "Permission Failure")
+            req.html.append(req.html_error(msg))
+            req.show_footer()
+            return
+
         raw_data = req.read_page()
         # interpolate data into the page
         data = raw_data % req.data
@@ -4228,7 +4242,11 @@ def authenticate_user(req, user, password, set_req_user=False):
             if token:
                 if set_req_user:
                     req.user.name = user_name
-                    req.admin = udata.get("admin", "False")
+                    admin = udata.get("admin", "")
+                    if admin == "True":
+                        req.user.admin = True
+                    else:
+                        req.user.admin = False
                 return (token, "")
             else:
                 return (None, "Invalid token for user '%s' on server" % user)
@@ -4513,6 +4531,22 @@ def handle_request(environ, req):
             "remove_user_confirm", "remove_user"
             ]
 
+    # these are actions that only admin users can perform
+    admin_only_action_list = [ "raw",
+            "manage_boards", "add_board_form", "add_board",
+            "view_board_config",
+            "edit_board_form", "update_board",
+            "remove_board_confirm", "remove_board",
+            "manage_resources", "add_resource_form", "add_resource",
+            "view_resource_config",
+            "edit_resource_form", "update_resource",
+            "remove_resource_confirm", "remove_resource",
+            "manage_users", "add_user_form", "add_user",
+            "view_user_config",
+            "edit_user_admin_form", "update_user",
+            "remove_user_confirm", "remove_user"
+            ]
+
     # map action names to "do_<action>" functions
     if action in action_list:
         try:
@@ -4520,6 +4554,14 @@ def handle_request(environ, req):
         except:
             msg = "Error: unsupported action '%s' (probably missing a do_%s routine)" % (action, action)
             req.send_response(RSLT_FAIL, msg)
+            return
+
+        # check that we have admin permissions to perform the action
+        if not req.user.admin and action in admin_only_action_list:
+            msg = "Error: action '%s' requires Administrator privileges (which you do not have)" % action
+            show_header(req, "Permission Failure")
+            req.html.append(req.html_error(msg))
+            req.show_footer()
             return
 
         action_function(req)
