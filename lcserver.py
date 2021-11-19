@@ -1013,7 +1013,7 @@ def do_add_user(req):
 
     # process admin flag
     if admin == "True":
-        log_this("Creating user account '%s' with admin privileges!" % user)
+        log_this("Creating user account '%s' with admin privileges!" % name)
 
     # create auth_token
     auth_token = str(uuid.uuid4())
