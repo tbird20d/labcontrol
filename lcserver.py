@@ -127,8 +127,8 @@ class config_class:
 
         self.admin_contact_str = "&lt;Please set the admin_contact_str in lcserver.conf&gt;"
 
-        # if not defined in lcserver.conf, try finding it
-        # precedence of installation locations:
+        # if not defined in lcserver.conf, try finding base_dir automatically
+        # Precedence of installation locations:
         # 2. local lcserver in Fuego container
         # 3. test lcserver on Tim's private server machine (birdcloud.org)
         # 4. test lcserver on Tim's home desktop machine (timdesk)
@@ -1078,11 +1078,6 @@ def do_update_user(req):
         umap["password"] = password
 
     # process admin flag
-    if admin == "True":
-        admin_field_str = ',\n    "admin": "True"'
-        log_this("admin=%s" % admin)
-    else:
-        admin_field_str = "\n"
     umap["admin"] = admin
 
     # process the token
@@ -1212,10 +1207,12 @@ def do_manage_boards(req):
 ###########################
 # here are the global field lists for boards
 board_field_list = ["description", "ip_addr", "host", "user", "password",
-        "power_controller", "power_measurement", "serial_endpoints"]
+        "power_controller", "power_measurement", "serial_endpoints",
+        "power_port", "start_time", "end_time"]
 
 board_cmd_field_list = ["command_status_cmd", "network_status_cmd",
         "run_cmd", "upload_cmd", "download_cmd"]
+
 
 def do_view_board_config(req):
     show_header(req, "View Board Config")
@@ -1244,6 +1241,9 @@ def do_view_board_config(req):
 
     for field in board_field_list:
         value = bmap.get(field, "")
+        if field in fields_that_are_lists:
+            value = ", ".join(value)
+            field += "(s)"
         req.html.append("<tr><td>%s</td><td>%s</td></tr>\n" % (field, req.html_escape(value)))
 
     for cmd_field in board_cmd_field_list:
@@ -1314,7 +1314,16 @@ def do_add_board(req):
     for field in board_field_list:
         if field == "name":
             continue
-        value = req.form.getfirst(field, "")
+        if field in fields_that_are_lists:
+            value = req.form.getlist(field)
+            if "None" in value:
+                value = []
+                board_map[field] = value
+        else:
+            value = req.form.getfirst(field, "")
+            if value == "None":
+                value = ""
+                board_map[field] = value
         if value:
             board_map[field] = value
 
@@ -1354,6 +1363,35 @@ def board_form(req, action, bmap):
     # in case they have wonky chars
 
     for field in board_field_list:
+        if field == "serial_endpoints":
+            html += "<tr><td>serial_endpoints:</td><td>\n"
+            serial_resources = get_resource_list_by_type(req, "serial")
+            serial_resources.append("None")
+            serials = bmap.get(field, [])
+            html += gen_list_form_element(field, serial_resources, serials)
+            html += "</td></tr>\n"
+            continue
+        if field == "power_controller":
+            html += "<tr><td>power_controller:</td><td>\n"
+            pc_resources = get_resource_list_by_type(req, "power_controller")
+            pc_resources.append("None")
+            pc = bmap.get(field, "None")
+            if not pc:
+                pc = "None"
+            html += gen_select_form_element(field, pc_resources, pc)
+            html += "</td></tr>\n"
+            continue
+        if field == "power_measurement":
+            html += "<tr><td>power_measurement:</td><td>\n"
+            pm_resources = get_resource_list_by_type(req, "power_measurement")
+            pm_resources.append("None")
+            pm = bmap.get(field, "None")
+            if not pm:
+                pm = "None"
+            html += gen_select_form_element(field, pm_resources, pm)
+            html += "</td></tr>\n"
+            continue
+
         value = bmap.get(field, "")
         html += """<tr><td>%s:</td><td align="right"><INPUT type="text" name="%s" value="%s" width=40></input></td></tr>
 """ % (field, field, req.html_escape(value, True))
@@ -1385,16 +1423,16 @@ def do_edit_board_form(req):
 Click to return to <a href="%s?action=manage_boards">"Manage Boards</a> page
 """ % req.page_url
 
-    board = req.form.getfirst("board", "")
-    if not board:
+    name = req.form.getfirst("board", "")
+    if not name:
         msg = "Error: missing name of board to add"
         req.html.append(req.html_error(msg))
         req.html.append(err_msg)
         return
 
-    bmap = get_object_map(req, "board", board)
+    bmap = get_object_map(req, "board", name)
     if not bmap:
-        msg = "Error: invalid board name '%s'" % board
+        msg = "Error: invalid board name '%s'" % name
         req.html.append(req.html_error(msg))
         req.html.append(err_msg)
         return
@@ -1421,7 +1459,16 @@ def do_update_board(req):
     for field in board_field_list:
         if field == "name":
             continue
-        value = req.form.getfirst(field, "")
+        if field in fields_that_are_lists:
+            value = req.form.getlist(field)
+            if "None" in value:
+                value = []
+                board_map[field] = value
+        else:
+            value = req.form.getfirst(field, "")
+            if value == "None":
+                value = ""
+                board_map[field] = value
         if value:
             board_map[field] = value
 
@@ -1438,6 +1485,7 @@ def do_update_board(req):
         return
 
     req.html.append('You successfully updated board: %s\n<p>\n' % name)
+    req.html.append('<p>Click to <a href="%s?action=view_board_config&board=%s">View Board Config</a> for this board' %  (req.page_url, name))
     req.html.append('<p>Click to return to <a href="%s?action=manage_boards">Manage Boards</a> page' %  req.page_url)
     req.html.append('<p>Return to <a href="%s/Admin">Admin</a> page.' %
                          (req.page_url))
@@ -1510,32 +1558,448 @@ def do_remove_board(req):
 def do_manage_resources(req):
     # show a list of resources, with edit and remove buttons
     # also show a link for adding a resource
+
+    resources = get_object_list(req, "resource")
+
     show_header(req, "Manage Resources")
-    req.html.append("Should finish do_manage_resources() function")
+
+    req.html.append("""Manage LabControl resources using the table below.<p>""")
+
+    # show a list of boards, with edit and remove buttons
+    req.html.append('<table class="resourcess_table">\n<tr>\n')
+    req.html.append("  <th>Name</th><th>Type(s)</th><th>Description</th><th>Action:</th>\n</tr>\n")
+    for resource in resources:
+        req.html.append("<tr>\n")
+        rmap = get_object_map(req, "resource", resource)
+        description = rmap.get("description", "")
+        res_types = rmap.get("type", [])
+        types_str = ", ".join(res_types)
+        edit_link = req.config.url_base + "/Admin?action=edit_resource_form&resource=" + resource
+        remove_link = req.config.url_base + "/Admin?action=remove_resource_confirm&resource=" + resource
+        view_link = req.config.url_base + "/Admin?action=view_resource_config&resource=" + resource
+
+        req.html.append('  <td valign="top" align="center"><b>%s</b></td>\n' % resource)
+        req.html.append('  <td valign="top">%s</td>\n' % types_str)
+        req.html.append('  <td valign="top">%s</td>\n' % description)
+        req.html.append('  <td valign="top"><a href="%s">View</a> | <a href="%s">Edit</a> | <a href="%s">Remove</a></td>\n' % (view_link, edit_link,remove_link))
+        req.html.append("</tr>\n")
+
+    req.html.append("</table>")
+
+    req.html.append('<p>Or, you can: <a href="%s?action=add_resource_form">Add a resource</a>' % req.page_url)
+
+    req.html.append('<p><hr><p>Click to return to <a href="%s">%s</a> page' % \
+            (req.page_url, req.page_name))
+
+    req.show_footer()
+
+###########################
+# here are the global field lists for resources
+resource_field_list = ["description", "res_host", "res_user", "res_password",
+        "type", "res_ip", "video_filename_extension", "reservation",
+        "sampling_interval", "serial_dev",
+        "power_port", "board", "board_feature"]
+
+resource_cmd_field_list = ["on_cmd", "off_cmd", "status_cmd",
+        "reboot_cmd", "capture_cmd", "image_cmd", "video_cmd",
+        "image_capture_cmd", "start_cmd", "stop_cmd", "config_cmd",
+        "put_cmd"]
+
+resource_known_fields = resource_field_list + resource_cmd_field_list
+resource_known_fields.append("name")
+
+res_types = ["power-controller", "power-measurement", "serial", "camera",
+        "canbus", "server"]
+
+fields_that_are_lists = ["type", "serial_endpoints"]
+
+pc_cmds = ["on_cmd", "off_cmd", "status_cmd", "reboot_cmd"]
+pm_cmds = ["start_cmd", "stop_cmd"]
+serial_cmds = ["config_cmd", "start_cmd", "stop_cmd", "put_cmd"]
+canbus_cmds = ["config_cmd", "start_cmd", "stop_cmd", "put_cmd"]
+camera_cmds = ["image_cmd", "video_cmd", "image_capture_cmd",
+                "config_cmd", "start_cmd", "stop_cmd"]
+server_cmds = ["start_cmd", "stop_cmd"]
+
+def do_view_resource_config(req):
+    show_header(req, "View Resource Config")
+
+    manage_url = "%s?action=manage_resources" % req.page_url
+
+    err_close_msg = "<p>Could not view resource config.\n<p>" + \
+                    'Click to return to <a href="%s">Manage Resources</a> page' % \
+                         manage_url
+
+    name = req.form.getfirst("resource", "")
+    if not name:
+        msg = "Error: Missing resource"
+        req.html.append(req.html_error(msg))
+        req.html.append(err_close_msg)
+        return
+
+    rmap = get_object_map(req, "resource", name)
+
+    edit_link = req.config.url_base + "/Admin?action=edit_resource_form&resource=" + name
+    remove_link = req.config.url_base + "/Admin?action=remove_resource_confirm&resource=" + name
+
+    # show resource data
+    req.html.append("Configuration data for resource '<b>%s</b>'" % name)
+    req.html.append('<table class="resource_table">')
+
+    # FIXTHIS - use type-specific field lists here (in do_view_board_config)
+
+    for field in resource_field_list:
+        value = rmap.get(field, "")
+        if field in fields_that_are_lists:
+            value = ", ".join(value)
+            field += "(s)"
+        req.html.append("<tr><td>%s</td><td>%s</td></tr>\n" % (field, req.html_escape(str(value))))
+
+    for cmd_field in resource_cmd_field_list:
+        value = rmap.get(cmd_field, "")
+        req.html.append("<tr><td>%s</td><td>%s</td></tr>\n" % (cmd_field, req.html_escape(value)))
+
+    req.html.append("</table>")
+
+    req.html.append("<p>User-defined (ad-hoc) fields:")
+    req.html.append('<table class="resource_table">')
+
+    # show miscelaneous (user-defined) fields
+    for field in list(rmap.keys()):
+        if field in resource_known_fields:
+            continue
+        value = rmap.get(field)
+        req.html.append("<tr><td>%s</td><td>%s</td></tr>\n" % (field, req.html_escape(str(value))))
+
+    req.html.append("</table>")
+
+    req.html.append('<p><a href="%s">Edit Resource Config</a> | <a href="%s">Remove this Resource</a>\n' % (edit_link, remove_link))
+
+    req.html.append('<p><hr><p>Click to return to <a href="%s">Manage Resources</a> page' % manage_url)
+
+    return
+
 
 def do_add_resource_form(req):
-    show_header(req, "Add Resource")
-    req.html.append("Should finish do_add_resource_form() function")
+    # show form for adding a resource
+    show_header(req, "Create LabControl Resource")
+    req.html.append("""Please enter the data for the new resource.
+<p><i>Note: Names may only include letters, numbers, and the following
+characters: _ - . @<i>
+<p>
+""")
+
+    # can provide default values here
+    # just provide an empty name and description for now
+    rmap = { "name": "", "description": "" }
+    req.html.append(resource_form(req, "add_resource", rmap))
+
+    req.html.append('<p>Click to return to <a href="%s/Admin">Admin</a> page.' %
+                         (req.page_url))
+
+def gen_select_form_element(field, value_options, value):
+    html = '<select name="%s">\n' % field
+    for option in value_options:
+        if option == value:
+            sel = " selected"
+        else:
+            sel = ""
+        html += '  <option value="%s"%s>%s</option>\n' % (option, sel, option)
+    html += "</select>"
+    return html
+
+# returns html text for a form element for a list resource
+# this supports multiple section
+# value_options has the list of all possible options
+# values indicates the list of already selection options
+def gen_list_form_element(field, value_options, values):
+    dlog_this("value_options=%s" % value_options)
+    dlog_this("values=%s" % values)
+
+    html = '<select name="%s" multiple>\n' % field
+    for option in value_options:
+        if option in values:
+            sel = " selected"
+        else:
+            sel = ""
+        html += '  <option value="%s"%s>%s</option>\n' % (option, sel, option)
+    html += "</select>"
+    return html
+
+def resource_form(req, action, rmap):
+    html = """<FORM METHOD="POST" ACTION="%s?action=%s">
+<table id=create_board_form>
+""" % (req.page_url, action)
+
+    if action == "add_resource":
+        html += """<tr><td>Name:</td><td align="right"><INPUT type="text" name="name" width=15></input></td></tr>"""
+    else:
+        name = rmap["name"]
+        html += """<tr><td>Name:</td><td><b>%s</b>
+          <INPUT type="hidden" name="name" value="%s"></input>
+          </td></tr>
+""" % (name, name)
+
+    # need to html_escape the values for the form fields
+    # in case they have wonky chars
+
+    for field in resource_field_list:
+        if field == "type":
+            html += "<tr><td>type:</td><td>\n"
+            html += gen_list_form_element(field, res_types, rmap[field])
+            html += "</td></tr>\n"
+            continue
+
+        value = rmap.get(field, "")
+        html += """<tr><td>%s:</td><td align="right"><INPUT type="text" name="%s" value="%s" width=40></input></td></tr>
+""" % (field, field, req.html_escape(value, True))
+
+    for cmd_field in resource_cmd_field_list:
+        value = rmap.get(cmd_field, "")
+        dlog_this("cmd_field %s value=%s" % (cmd_field, value))
+        html += """<tr><td>%s:</td><td align="right"><INPUT type="text" name="%s" value="%s" width=100></input></td></tr>
+""" % (cmd_field, cmd_field, req.html_escape(value, True))
+
+    # FIXTHIS - show already-defined user-defined fields
+
+    # allow inputting new user-defined fields
+    for i in range(10):
+        name_field = "name%d" % i
+        value_field = "value%d" % i
+        html += """<tr><td><INPUT type="text" name="%s" value="">:</td>
+        <td align="right"><INPUT type="text" name="%s" value="" width=100></input></td></tr>
+""" % (name_field, value_field)
+
+    if action == "add_resource":
+        button_label = "Create Resource"
+    else:
+        button_label = "Update Resource"
+
+    html += """
+    <tr><td> </td>
+    <td> <INPUT type="submit" value="%s"></input>
+    <a href="%s">Cancel</a></input></td></tr>
+</table></FORM>""" % (button_label, req.page_url)
+
+    return html
+
 
 def do_add_resource(req):
     show_header(req, "Add Resource")
-    req.html.append("Should finish do_add_resource() function")
+
+    err_msg = "<p>Could not create resource.\n<p>" + \
+                    'Click to return to <a href="%s">%s</a>' % \
+                         (req.page_url, req.page_name)
+
+    # process new resource data
+    name = req.form.getfirst("name", "")
+    log_this("Trying to create resource: %s" % name)
+
+    if not name:
+        msg = "Error: empty resource name '%s'" % name
+        log_this(msg)
+        req.html.append(req.html_error(req.html_escape(msg)))
+        req.html.append(err_msg)
+        return
+
+    still_ok = True
+    allowed_re_pat = "^[\w_-]+$"
+    if not re.match(allowed_re_pat, name):
+        msg = "Error: resource name '%s' has disallowed chars.  Only letters, numbers, _, and are allowed." % name
+        log_this(msg)
+        req.html.append(req.html_error(req.html_escape(msg)))
+        req.html.append(err_msg)
+        return
+
+    # make sure the name doesn't already exist
+    resources = get_object_list(req, "resource")
+    if name in resources:
+        msg = "Error: resource '%s' already exists." % name
+        log_this(msg)
+        req.html.append(req.html_error(msg))
+        req.html.append(err_msg)
+        return
+
+    rmap = {"name": name, "description": ""}
+    for field in resource_field_list:
+        if field == "name":
+            continue
+        if field == "type":
+            # get (possibly) multiple values, and store as a list
+            value = req.form.getlist(field)
+        else:
+            value = req.form.getfirst(field, "")
+        if value:
+            rmap[field] = value
+
+    for cmd_field in resource_cmd_field_list:
+        value = req.form.getfirst(cmd_field, "")
+        if value:
+            rmap[cmd_field] = value
+
+    # check for new user-defined fields
+    for i in range(10):
+        field = req.form.getfirst("name%d" % i, "")
+        value = req.form.getfirst("value%d" % i, "")
+        if field and value:
+            rmap[field] = value
+
+    msg = save_object_data(req, "resource", name, rmap)
+    if msg:
+        log_this(msg)
+        req.html.append(req.html_error(msg))
+        req.html.append(err_msg)
+        return
+
+    req.html.append('You successfully created resource: %s\n<p>\n' % name)
+    req.html.append('<p>Click to return to <a href="%s?action=manage_resources">Manage Resources</a> page' %  req.page_url)
+    req.html.append('<p>Return to <a href="%s/Admin">Admin</a> page.' %
+                         (req.page_url))
+    return
+
 
 def do_edit_resource_form(req):
     show_header(req, "Edit Resource")
-    req.html.append("Should finish do_edit_resource_form() function")
+
+    err_msg = """Could not show edit resource form<br>
+Click to return to <a href="%s?action=manage_resources">"Manage Resources</a> page
+""" % req.page_url
+
+    name = req.form.getfirst("resource", "")
+    if not name:
+        msg = "Error: missing name of resource to add"
+        req.html.append(req.html_error(msg))
+        req.html.append(err_msg)
+        return
+
+    rmap = get_object_map(req, "resource", name)
+    if not rmap:
+        msg = "Error: invalid resource name '%s'" % name
+        req.html.append(req.html_error(msg))
+        req.html.append(err_msg)
+        return
+
+    req.html.append(resource_form(req, "update_resource", rmap))
+
+    req.html.append('<p>Click to return to <a href="%s?action=manage_resources">Manage Resources</a> page' %  req.page_url)
+    req.html.append('<p>Return to <a href="%s/Admin">Admin</a> page.' %
+                         (req.page_url))
+
 
 def do_update_resource(req):
     show_header(req, "Update Resource")
-    req.html.append("Should finish do_update_resource() function")
+
+    err_msg = "<p>Could not update resource.\n<p>" + \
+                    'Click to return to <a href="%s">%s</a>' % \
+                         (req.page_url, req.page_name)
+
+    # process updated data
+    name = req.form.getfirst("name", "")
+    log_this("Updating resource: '%s'" % name)
+
+    rmap = get_object_map(req, "resource", name)
+
+    for field in resource_field_list:
+        if field == "name":
+            continue
+        if field == "type":
+            # get multiple values
+            value = req.form.getlist(field)
+        else:
+            value = req.form.getfirst(field, "")
+        if value:
+            rmap[field] = value
+
+    for cmd_field in resource_cmd_field_list:
+        value = req.form.getfirst(cmd_field, "")
+        if value:
+            rmap[cmd_field] = value
+
+    # handle previously defined user-defined fields
+    for field in list(rmap.keys()):
+        if field in resource_known_fields:
+            continue
+        value = req.form.getfirst(field, "")
+
+    # check for new user-defined fields
+    for i in range(10):
+        field = req.form.getfirst("name%d" % i, "")
+        value = req.form.getfirst("value%d" % i, "")
+        if field and value:
+            rmap[field] = value
+
+    msg = save_object_data(req, "resource", name, rmap)
+    if msg:
+        log_this(msg)
+        req.html.append(req.html_error(msg))
+        req.html.append(err_msg)
+        return
+
+    req.html.append('You successfully updated resource: %s\n<p>\n' % name)
+    req.html.append('<p>Click to return to <a href="%s?action=manage_resources">Manage Resources</a> page' %  req.page_url)
+    req.html.append('<p>Return to <a href="%s/Admin">Admin</a> page.' %
+                         (req.page_url))
+
 
 def do_remove_resource_confirm(req):
     show_header(req, "Confirm Resource Removal")
-    req.html.append("Should finish do_remove_resource_confirm() function")
+
+    name = req.form.getfirst("resource", "")
+    if not name:
+        msg = "Error: missing resource to confirm removal of"
+        req.html.append(req.html_error(msg))
+        req.html.append("Could not remove resource" + \
+              'Click to return to <a href="%s">%s</a>' % \
+                         (req.page_url, req.page_name))
+        return
+
+    rmap = get_object_map(req, "resource", name)
+    dlog_this("rmap=%s" % rmap)
+    desc = rmap["description"]
+
+    # ask for confirmation before removing the resource
+    req.html.append("Confirm that you really want to remove resource '%s'\n<p>" % name)
+    req.html.append("Description: '%s'\n<p>" % desc)
+    req.html.append("""<FORM METHOD="POST" ACTION="%s?action=remove_resource&resource=%s">
+<INPUT type="submit" name="removeresource" value="Remove Resource"></input>
+<a href="%s">Cancel</a>
+</FORM>""" % (req.page_url, name, req.page_url))
+    req.html.append('<p>Click to return to <a href="%s?action=manage_resources">Manage Resources</a> page' %  req.page_url)
+    req.html.append('<p>Return to <a href="%s/Admin">Admin</a> page.' %
+                         (req.page_url))
+
 
 def do_remove_resource(req):
     show_header(req, "Remove Resource")
-    req.html.append("Should finish do_remove_resource() function")
+
+    name = req.form.getfirst("resource", "")
+    if not name:
+        msg = "Error: missing resource to confirm removal of"
+        req.html.append(req.html_error(msg))
+        req.html.append("Could not remove resource" + \
+              'Click to return to <a href="%s">%s</a>' % \
+                         (req.page_url, req.page_name))
+        return
+
+    file_path = "%s/resources/resource-%s.json" %  (req.config.data_dir, name)
+
+    msg = None
+    try:
+        os.remove(file_path)
+        log_this("Removed file %s" % file_path)
+    except OSError:
+        msg = "Error: Could not remove resource file for '%s'" % name
+
+    if msg:
+        req.html.append(req.html_error(msg))
+    else:
+        req.html.append("Board '%s' removed." % name)
+
+    req.html.append('<p>Click to return to <a href="%s?action=manage_resources">Manage Resources</a> page' %  req.page_url)
+    req.html.append('<p>Return to <a href="%s/Admin">Admin</a> page.' %
+                         (req.page_url))
+    return
+
 
 def get_timestamp():
     t = time.time()
@@ -2640,6 +3104,24 @@ def get_object_list(req, obj_type):
     obj_list.sort()
     return obj_list
 
+# get a list of resource of a particular type
+def get_resource_list_by_type(req, res_type):
+    data_dir = req.config.data_dir + "/resources"
+    res_list = []
+
+    filelist = os.listdir(data_dir)
+    prefix = "resource-"
+    for f in filelist:
+        if f.startswith(prefix) and f.endswith(".json"):
+            # remove board- and '.json' to get the board_name
+            name = f[len(prefix):-5]
+            rmap = get_object_map(req, "resource", name)
+            if res_type in rmap["type"]:
+                res_list.append(name)
+
+    res_list.sort()
+    return res_list
+
 # supported api actions by path:
 # devices = list boards
 # devices/{board} = show board data (json file data)
@@ -2801,8 +3283,8 @@ def get_connected_resource(req, board_map, resource_type):
         req.send_response(RSLT_FAIL, msg)
         return None
 
-    resource_map = get_object_map(req, "resource", resource)
-    return resource_map
+    rmap = get_object_map(req, "resource", resource)
+    return rmap
 
 def return_api_object_data(req, obj_type, obj_name):
     # do default action for an object - return json file data (as a string)
