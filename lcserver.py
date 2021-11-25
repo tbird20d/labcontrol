@@ -1740,13 +1740,14 @@ def resource_form(req, action, rmap):
           </td></tr>
 """ % (name, name)
 
-    # need to html_escape the values for the form fields
+    # html_escape the values for the form fields
     # in case they have wonky chars
 
     for field in resource_field_list:
         if field == "type":
             html += "<tr><td>type:</td><td>\n"
-            html += gen_list_form_element(field, res_types, rmap[field])
+            cur_type = rmap.get(field, "")
+            html += gen_list_form_element(field, res_types, cur_type)
             html += "</td></tr>\n"
             continue
 
@@ -5044,7 +5045,7 @@ def handle_request(environ, req):
 
         action_function(req)
 
-        if not req.footer_shown:
+        if not req.footer_shown and action != "api":
             req.show_footer()
         return
 
