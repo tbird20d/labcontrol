@@ -1,0 +1,204 @@
+#!/usr/bin/python3
+#
+# stream-proxy - a CGI script to act as a proxy for a streaming service
+
+import os
+import sys
+import socket
+import select
+
+debug = False
+
+# comment out the second line to turn logging off
+logfile = None
+logfile = "/home/tbird/work/labcontrol/lc-data/stream-proxy.log"
+
+def do_log(data):
+    if logfile:
+        with open(logfile, "ab") as fd:
+            fd.write(data)
+            fd.flush()
+
+# specify time in seconds to wait for streamer
+# note: 0 = socket is non-blocking
+# non-zero = socket is in timeout mode (nonblocking, with a timeout)
+# None = socket is in blocking mode
+proxy_connection_timeout = "10"
+
+# max amount of data to read at a time from the streaming server
+max_data = 8192
+
+SERVER_CONF_FILENAME = "/etc/lcserver.conf"
+
+# read config file variables as strings into the global name space
+# hacky, but it's quick and it works
+lines = open(SERVER_CONF_FILENAME, "r").readlines()
+for line in lines:
+    if not line or line.startswith("#"):
+        continue
+    try:
+        name, value = line.split("=", 1)
+        globals()[name] = value.strip()
+    except:
+        continue
+
+PATH_INFO=os.environ.get("PATH_INFO", "")
+# use the last element of the path as the stream identifier
+# This means that http://../stream-proxy/one/one is equivalent
+# to http://../stream-proxy/one/ - but I don't care
+stream_id=PATH_INFO.split("/")[-1]
+
+# read stream-proxy config file
+proxy_data_file = base_dir + "/stream-proxies.dat"
+try:
+    fd = open(base_dir+"/stream-proxies.dat", "r")
+except:
+    err_msg = "Error: proxy data file is missing"
+    print("Content-type: text\html\n")
+    print(err_msg)
+    sys.exit(0)
+
+stream_url = None
+for line in fd.readlines():
+    if not line or line.startswith("#"):
+        continue
+    try:
+        id_name, value = line.split("=", 1)
+        if id_name == stream_id:
+            stream_url = value.strip()
+    except:
+        continue
+
+if not stream_url:
+    err_msg = "Error: Could not find proxy for stream_id '%s'" % stream_id
+    print("Content-type: text\html\n")
+    print(err_msg)
+    sys.exit(0)
+
+if stream_id == "debug":
+    debug = True
+    stream_url = "http://www.google.com/"
+
+# parse the proxied_stream
+method, rest = stream_url.split("://", 1)
+addr, path = rest.split("/", 1)
+path = "/" + path
+if ":" in addr:
+    server, port = addr.split(":", 1)
+    port = int(port)
+else:
+    server = addr
+    port = 80
+
+# create the request
+request = b"GET %s HTTP/1.1\r\n" % path.encode("utf-8")
+# test 2
+request += b"""Host: %s\r
+Connection: keep-alive\r
+User-Agent: STREAM-PROXY/1.0\r
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avig,image/webp,image/apng,*/*;q=0.8\r
+Accept-Language: en-US,en;q=0.9\r
+\r
+\r
+""" % server.encode("utf-8")
+
+# attempt at a correct-syntax header
+request += b"""Host: %s\r
+User-Agent: STREAM-PROXY/1.0\r
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avig,image/webp,image/apng,*/*;q=0.8\r
+Accept-Language: en-US,en;q=0.9\r
+\r
+\r
+"""
+
+request = b"GET %s HTTP/1.1\r\nHost: %s\r\n\r\n\r\n" % (path.encode("utf-8"), server.encode("utf-8"))
+
+do_log(b"==================================================\n")
+do_log(b"request='%s'\n" % request)
+
+if debug:
+    print("Content-type: text\html\n")
+    print("Hello world - from stream-proxy\n<p>\n");
+    print("PATH_INFO=%s<BR>" % PATH_INFO)
+    print("stream_id=%s<BR>" % stream_id)
+    if not proxied_stream:
+        print("Could not find stream_url for stream_id %s" % stream_id)
+    else:
+        print("stream_url=%s<BR>" % stream_url)
+else:
+    # read the data from the streamer, and return it unmodified
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    # set duration of connection timeout
+    #s.settimeout(float(proxy_connection_timeout))
+    # use blocking mode, for now
+    s.settimeout(None)
+    s.connect((server, port))
+    s.sendall(request)
+    s.shutdown(socket.SHUT_WR)
+
+    while True:
+        try:
+            data = s.recv(max_data)
+        except TimeoutError:
+            break
+
+# partial code to handle non-blocking recvs
+#        except socket.error, e:
+#            err = e.args[0]
+#            if err == errno.EAGAIN or err == errno.EWOULDBLOCK:
+#                sleep(1)
+#                do_log("got not data this time")
+#            else:
+#                break
+
+        #do_log(b"## received data of length %d\n" % len(data))
+
+        # check for and strip HTTP headers
+        if data.startswith(b"HTTP"):
+            in_headers = True
+            #sys.stdout.buffer.write(b"Content-type: text/html\n\n")
+            #sys.stdout.buffer.write(b"## got the following data:")
+            #do_log(b"## data:\n")
+            #do_log(data)
+
+            #sys.stdout.buffer.write(b"<BR> ## outputting the following response:")
+
+            lines = data.split(b"\n")
+            for line in lines:
+                #do_log(b"line=%s\n" % line)
+                if line.startswith(b"HTTP"):
+                    continue
+                if line.startswith(b"Connection:"):
+                    # should handle this?
+                    continue
+                if line.startswith(b"Content-Length:"):
+                    # should handle this?
+                    continue
+                if line.startswith(b"Content-Type:"):
+                    do_log(b"## found '%s'\n" % line)
+                    content_type = line
+                    continue
+                # FIXTHIS - what about cookies?
+                if in_headers and not line.strip():
+                    do_log(b"## found blank link in headers\n")
+                    in_headers = False
+                    sys.stdout.buffer.write(content_type + b"\n\n")
+                    continue
+                if not in_headers:
+                    sys.stdout.buffer.write(line+b"\n")
+                else:
+                    do_log(b"still in header\n")
+
+            # done with this block, recv some more
+            continue
+
+        do_log(data)
+
+        if len(data) == 0:
+            break
+
+        sys.stdout.buffer.write(data)
+
+sys.stdout.buffer.flush()
+sys.exit(0)
