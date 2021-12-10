@@ -626,6 +626,17 @@ th, td {
 
         dlog_this("in req.set_user: user=%s" % str(self.user.name))
 
+    def show_live_stream(self, cam_map):
+        try:
+            url = cam_map["live_stream_url"]
+            self.html.append("Content-type: text/html\n")
+            self.html.append('<a href="%s">live_stream</a>' % url)
+            self.html.append('<br>')
+        except KeyError:
+            self.html.append("Content-type: text/html\n")
+            self.html.append("Error: missing 'live_stream_url' in resource")
+            self.html.append('<br>')
+
 # end of req_class
 #######################
 
@@ -1598,12 +1609,13 @@ def do_manage_resources(req):
 resource_field_list = ["description", "res_host", "res_user", "res_password",
         "type", "res_ip", "video_filename_extension", "reservation",
         "sampling_interval", "serial_dev",
-        "power_port", "board", "board_feature"]
+        "power_port", "board", "board_feature",
+        "live_stream_url", "video_filename_extension"]
 
 resource_cmd_field_list = ["on_cmd", "off_cmd", "status_cmd",
         "reboot_cmd", "capture_cmd", "image_cmd", "video_cmd",
         "image_capture_cmd", "start_cmd", "stop_cmd", "config_cmd",
-        "put_cmd"]
+        "put_cmd", "live_stream_start_cmd", "live_stream_stop_cmd"]
 
 resource_known_fields = resource_field_list + resource_cmd_field_list
 resource_known_fields.append("name")
@@ -1618,7 +1630,8 @@ pm_cmds = ["start_cmd", "stop_cmd"]
 serial_cmds = ["config_cmd", "start_cmd", "stop_cmd", "put_cmd"]
 canbus_cmds = ["config_cmd", "start_cmd", "stop_cmd", "put_cmd"]
 camera_cmds = ["image_cmd", "video_cmd", "image_capture_cmd",
-                "config_cmd", "start_cmd", "stop_cmd"]
+                "config_cmd", "start_cmd", "stop_cmd",
+                "live_stream_start", "live_stream_stop"]
 server_cmds = ["start_cmd", "stop_cmd"]
 
 def do_view_resource_config(req):
@@ -2522,6 +2535,20 @@ def show_board_info(req, bmap):
 </form>
 """ % video_link)
 
+        live_stream_start_link = req.config.url_base + "/api/v0.2/devices/%s/camera/live_stream_start" % bmap["name"]
+        req.html.append("""
+<form method="get" action="%s">
+<input type="submit" name="button" value="Start LiveStream">
+</form>
+""" % live_stream_start_link)
+
+        live_stream_stop_link = req.config.url_base + "/api/v0.2/devices/%s/camera/live_stream_stop" % bmap["name"]
+        req.html.append("""
+<form method="get" action="%s">
+<input type="submit" name="button" value="Stop LiveStream">
+</form>
+""" % live_stream_stop_link)
+
     req.html.append("</ul>")
 
 
@@ -3216,6 +3243,8 @@ def get_object_map(req, obj_type, obj_name):
         return {}
 
     if obj_type == "board":
+        # sythesize the 'board' variable, used by some resource cmds
+        obj_map["board"] = obj_map["name"]
         try:
             assigned_to = obj_map["AssignedTo"]
         except KeyError:
@@ -3260,6 +3289,10 @@ def save_object_data(req, obj_type, obj_name, obj_data):
 
     filename = obj_type + "-" + obj_name + ".json"
     file_path = "%s/%ss/%s" %  (req.config.data_dir, obj_type, filename)
+
+    # remove synthesized 'board' attribute
+    if obj_type == "board":
+        del obj_data["board"]
 
     #log_this("in save_object_data: obj_data=%s" % obj_data)
 
@@ -3449,6 +3482,13 @@ def do_board_camera_operation(req, board, board_map, rest):
             log_this("Problem creating symlink %s -> %s" % (sympath, filename))
 
         req.send_api_response_msg(result, msg)
+    elif action == "live_stream_start":
+        req.show_live_stream(cam_map)
+        return_exec_command(req, board_map, cam_map, action)
+        return
+    elif action == "live_stream_stop":
+        return_exec_command(req, board_map, cam_map, action)
+        return
     else:
         msg = "camera action '%s' not supported" % action
         req.send_api_response_msg(RSLT_FAIL, msg)
