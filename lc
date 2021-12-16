@@ -137,7 +137,7 @@ command_help = {
   A message and the exit code indicate whether the resource is
   already reserved.
 
-  ex: lc beablebone reserve 2h"""),
+  ex: lc beaglebone reserve 2h"""),
 
 "allocate": ("Reserve a board for my use.",
     """Usage: lc {board} allocate [-f] [{duration}]
