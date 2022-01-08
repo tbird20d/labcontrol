@@ -44,7 +44,7 @@ Here's how I configured things:
      the files.
 
  - $ sudo vi /etc/apache2/conf-enabled/serve-cgi-bin.conf
-   - add the following line in the section <Directory "/usr/bin/cgi-bin">
+   - add the following line in the section <Directory "/usr/lib/cgi-bin">
       CGIPassAuth On
 
  - $ sudo systemctl reload apache2
