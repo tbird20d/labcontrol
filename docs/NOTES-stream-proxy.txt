@@ -1,0 +1,56 @@
+Here are some notes about stream-proxy.py:
+
+When the user requests streaming data, lcserver does this:
+ - starts mjpg-streamer on the resource host
+   - this creates a special-purpose web server that delivers
+     data from http://<res_host>:8080/?action=stream
+   - sets the configuration for a stream proxy instance
+     - in lc-data/stream-proxies.dat
+     - config contains id-> url mapping
+     - each line has: <id>=<url>
+   - the server provides the url: https://<lc_host>/stream-proxy/<id>
+
+streamer-proxy is a CGI script that returns streaming data, forwarded
+from the res_host mjpg-streamer instance.
+  - on a request, it looks up the id in the config file
+  - issues a request to the res_host
+  - sends the data to the client
+  - runs indefinitely
+
+== NOTES:
+ Apache doesn't give fine-grained control over http headers to a CGI script.
+ A script can set the Content-Type and Cookies headers, but not
+ other response header like:
+Connection: Keep-Alive
+Content-Encoding: gzip
+Content-Length
+Date:
+Keep-Alive:
+Server:
+Vary: Accent-Encoding
+(HTTP protocol header: "HTTP/1.1 200 OK")
+----
+
+ - The HTTP/1.1 request header MUST include Host:
+ - You can use Transfer-Encoding: chunked
+   - see https://en.wikipedia.org/wiki/Chunked_transfer_encoding
+   - a chunked message has:
+     - a line with the size of the chunk data, in hex, possibly followed
+       by a semicolon and extra parameters and ending in CRLF
+     - the data itself, followed by CRLF
+   - the last chunk has '0', followed by CRLF, followed by footers, then
+     a final blank line
+
+ - see https://www.jmarshall.com/easy/http/#whatis
+
+ - must handle "100 Continue" responses from the server
+
+ - all responses must have a Date: field
+
+=== Research items Q/A ===
+Does Apache do the gzipping, from the data that the CGI script provides?
+
+Q. How does Content-Length work, when the size is not known ahead of time?
+A. Content-Length can be omitted and a Transfer-Encoding header can be used.
+If both headers are missing, then at the end of the response the connection
+must be closed.

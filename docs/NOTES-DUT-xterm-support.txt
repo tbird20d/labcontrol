@@ -1,0 +1,24 @@
+Here are some notes about xterm support for the DUT
+
+See ~/work/pyxtermjs/pyxtermjs
+
+ - run with 'cd ~/work/pyxtermjs ; ./pyxtermjs'
+ - access with: 'browser http://localhost:5000/'
+
+This sample uses flask, and socket.io
+
+I'll need async socket data transfer in order for this to work
+for my needs.
+
+It uses xterm.js javascript library from: unpkg.com
+It uses ajav/libs/socket.io library from cloudflare.com
+
+The actual flask app is in pyxtermjs/app.py (and it's very short)
+
+== BFC terminal ==
+What is bfc using?
+ - on bfc server: https://bfc.timesys.com/scheduler/console/raspi4_gpio
+   page has an iframe pointing to:
+   - https://bfc.timesys.com/console/4349
+   - with a title of 'sshpass -p zuser ssh -t zuser@172.16.99.25 ...'
+
