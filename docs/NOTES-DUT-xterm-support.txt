@@ -1,5 +1,82 @@
 Here are some notes about xterm support for the DUT
 
+== To Do items for DUT xterm web UI ==
+ - handle ttyd instance lifecycle
+   - call stop_webterm on:
+     - clear_reservation()
+     - close_terminal()
+       - add link to web_terminal interface for "close terminal and return to
+         board page"
+       - this should just call stop_webterm(), and then call show_board()
+
+ - add flexibility to ttyd invocation
+   - get ttyd command string from lcserver.conf file
+
+ - make sure user has board allocated before granting access to webterm
+   page for board
+   - check rights in show_web_terminal()
+   - hard: add per-user authentication to ttyd
+
+ - find a way to use path element instead of port to distinguish
+   terminals
+   - maybe ttyd supports multiple terminals at the same time?
+
+ - experiment with ttyd options to provide different terminal settings
+
+== things already implemented ==
+ + install ttyd on host where labcontrol runs
+ + create flow for "webterm" interface
+   + have show_board() add link to "webterm/bbb" if board.json has 'login_cmd'
+   + handle "webterm" object type, in do_show()
+   + add show_web_terminal, with iframe for bbb web terminal
+ + keep ttyd pid and port in a new data file - lc-data/proc-data.json
+   + proc_data.json attributes:
+      'pid' - process id, if it's running, as a number
+      'port' - port where this instance of ttyd is running
+   + the port is used to construct the url used to access this ttyd
+     instance on this machine
+   + the pid is used to terminate the service, on stop_webterm
+ + create routines:
+    + start_webterm(req, board)
+    + stop_webterm(req, board)
+ + start_webterm outline:
+   + detect if already running
+   + use login_cmd from board data
+   + use hardcoded ttyd execution string (from /usr/local/bin)
+   + execute ttd command using start_command()
+     + execute ttyd, and get pid
+     + save pid in proc-data file
+   + call start_webterm from show_web_terminal
+
+== ttyd ==
+(this is the preferred system)
+Obtained from https://github.com/tsl0922/ttyd
+
+default port is 7681
+
+ $ ttyd -p %(port)s bash
+shows a terminal using bash, on the host machine, as the user that ran ttyd
+
+ $ ttyd -p %(port)s %(login_cmd)
+
+where login_cmd comes from board-bbb.json, and has the value:
+sshpass -p %(password)s ssh -q -o UserKnownHostsFile=/dev/null -o "StrictHostKeyChecking no" -x %(user)s@%(ip_addr)s
+
+
+== Apache proxypass ==
+Configure apache to proxy the ttd sessions, so that the user
+doesn't need to.  This doesn't appear to work with websockets.
+
+Could use proxypass like this:
+
+ProxyPass /webterm1 http://localhost:7681
+ProxyPassReverse /webterm1 http://localhost:7681
+ProxyPass /webterm2 http://localhost:7682
+ProxyPassReverse /webterm2 http://localhost:7682
+etc.
+
+== pyxtermjs ==
+(not used)
 See ~/work/pyxtermjs/pyxtermjs
 
  - run with 'cd ~/work/pyxtermjs ; ./pyxtermjs'
@@ -21,4 +98,5 @@ What is bfc using?
    page has an iframe pointing to:
    - https://bfc.timesys.com/console/4349
    - with a title of 'sshpass -p zuser ssh -t zuser@172.16.99.25 ...'
+ - they are using ttyd: https://github.com/tsl0922/ttyd
 

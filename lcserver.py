@@ -1222,7 +1222,7 @@ board_field_list = ["description", "ip_addr", "host", "user", "password",
         "power_port", "start_time", "end_time"]
 
 board_cmd_field_list = ["command_status_cmd", "network_status_cmd",
-        "run_cmd", "upload_cmd", "download_cmd"]
+        "run_cmd", "upload_cmd", "download_cmd", "login_cmd"]
 
 
 def do_view_board_config(req):
@@ -2451,12 +2451,139 @@ def show_request_table(req):
     html += "</table>"
     req.html.append(html)
 
+# returns proc-data, which is a dictionary with:
+# key='webterm-{board}', attr=dictionary with:
+#   keys 'pid' and 'port'
+def read_proc_data(req):
+    file_path = "%s/proc-data.json" %  (req.config.base_dir)
+    try:
+        fd = open(file_path)
+        proc_data = json.load(fd)
+        fd.close()
+    except (FileNotFoundError, PermissionError):
+        log_this("Error reading proc_data")
+        proc_data = {}
+    except (ValueError, json.JSONDecodeError):
+        log_this("Cannot parse proc_data as json")
+        proc_data = {}
+
+    return proc_data
+
+def write_proc_data(req, proc_data):
+    file_path = "%s/proc-data.json" %  (req.config.base_dir)
+    try:
+        fd = open(file_path, "w")
+        json.dump(proc_data, fd, indent=4)
+        fd.close()
+    except:
+        log_this("Error writing proc_data")
+
+# Possible solution to the port re-use problem:
+# We could add port use memory: put used ports in a bucket, and avoid using
+# them for some period of time. (e.g. by adding a delay before using a
+# port in the bucket, and having them expire from the bucket over time)
+#
+def find_unused_port(proc_data):
+    # FIXTHIS - the current algorithm leads to rapid port re-use
+    # which might be a security issue.
+
+    # try ports in range 7681 to 7781
+    for port in range(7681, 7781):
+        # find out if this port is unused
+        used = False
+        for proc in proc_data.values():
+            if port == proc["port"]:
+                used = True
+                break
+        if not used:
+            break
+
+    if not used:
+        log_this("Could not find free port for webterminal process start")
+
+    return port
+
+# starts webterm process, if needed.
+# returns (port, msg)
+# on success msg is empty, and port has the port where the web terminal
+# can be accessed
+# on failure, msg has a string indicating the problem
+def start_webterm_process(req, board):
+    proc_data = read_proc_data(req)
+    msg = ""
+
+    pd_key = "webterm-%s" % board
+    if pd_key in proc_data:
+        port = proc_data[pd_key]["port"]
+    else:
+        # start process
+        port = find_unused_port(proc_data)
+        wt_cmd="/usr/local/bin/ttyd -p %d %%(login_cmd)s" % port
+
+        bmap = get_object_map(req, "board", board)
+        iwt_cmd = get_interpolated_str(wt_cmd, bmap)
+
+        (pid, msg) = start_command(req, pd_key, iwt_cmd)
+        if pid:
+            proc_data[pd_key] = { "port": port, "pid": pid }
+            write_proc_data(req, proc_data)
+        else:
+            msg = "Error starting ttyd process for web terminal support:\n" + msg
+            port = 0
+
+    return (port, msg)
+
+def stop_webterm_process(req, board):
+    proc_data = read_proc_data(req)
+    pd_key = "webterm=%s" % board
+    token = pd_key
+
+    try:
+        pid = proc_data[pd_key]["pid"]
+    except KeyError:
+        log_this("Error: Could not find pid for process '%s'" % pd_key)
+        pid = 0
+
+    if pid:
+        os.kill(pid, signal.SIGTERM)
+
+        # remove data files
+        capture_stdout = open("/tmp/capture-stdout-" + token, "wb")
+        capture_stderr = open("/tmp/capture-stderr-" + token, "wb")
+
+        del(proc_data[pd_key])
+        write_proc_data(req, proc_data)
+
+
+def show_web_terminal(req, board):
+    # start webterm process, if it's not already running
+    port, msg = start_webterm_process(req, board)
+
+    if msg:
+        # report error starting webterm
+        frame_html = """<table width="640" height="480"><tr><td>%s</td></tr></table>""" % req.html_error(msg)
+    else:
+        webterm_url = req.config.url_prefix + ":%s/" % port
+        frame_html = """<iframe src="%s" width="640" height="480"></iframe>""" % webterm_url
+
+    html = """<table border="1" cellpadding="2">
+  <tr>
+  <td>%s</td>
+  <td>%s</td>
+  </tr>
+""" % (board, frame_html)
+    html += "</table>"
+    req.html.append(html)
+    # FIXTHIS - show a 'back' url with an action that stops the webterm
+
 # NOTE: we're inside a table cell here
 def show_board_info(req, bmap):
     # list of connected resources
     req.html.append("<h3>Resources</h3>\n<ul>")
     pc = bmap.get("power_controller", "")
     cm = bmap.get("camera", "")
+    lc = bmap.get("login_cmd", "")
+
     resource_shown = False
     if pc:
         req.html.append("<li>Power controller: %s</li>\n" % pc)
@@ -2548,6 +2675,12 @@ def show_board_info(req, bmap):
 <input type="submit" name="button" value="Stop LiveStream">
 </form>
 """ % live_stream_stop_link)
+
+    if lc:
+        login_link = req.config.url_base + "/webterm/%s" % (bmap["name"])
+        req.html.append("""
+        <a href="%s">Web terminal</a>
+""" % login_link)
 
     req.html.append("</ul>")
 
@@ -3033,7 +3166,6 @@ def do_show(req):
     # check for a page from the page directory here
     if os.path.isfile(req.page_filename()):
         if not req.user.admin and page_name in admin_pages:
-            show_header(req, "Permission Failure")
             msg = "Error: access to page '%s' requires Administrator privileges (which you do not have)" % page_name
             show_header(req, "Permission Failure")
             req.html.append(req.html_error(msg))
@@ -3054,6 +3186,9 @@ def do_show(req):
             show_header(req, "Lab Control %s" % req.obj_type)
             # show individual object
             show_object(req, req.obj_type, req.page_name)
+        elif req.obj_type == "webterm":
+            show_header(req, "Lab Control Web Terminal")
+            show_web_terminal(req, req.page_name)
         else:
             show_header(req, "Lab Control")
             title = "Error - unsupported object type '%s'" % req.obj_type
