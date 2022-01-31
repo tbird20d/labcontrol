@@ -3551,9 +3551,10 @@ def do_board_get_resource(req, board, board_map, rest):
 
 def do_board_camera_operation(req, board, board_map, rest):
     #check board reservation
-    operation = rest[0]
-    if do_check_board_permission(req, board, board_map, operation) == 0:
+    operation = "camera " + rest[0]
+    if not user_has_board_reserved(req, board_map, operation):
         return
+
     cam_map = get_connected_resource(req, board_map, "camera")
     if not cam_map:
         msg = "No camera resource found for board %s" % board
@@ -3634,16 +3635,19 @@ def do_board_camera_operation(req, board, board_map, rest):
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
-def do_check_board_permission(req, board, board_map, operation):
-    user = req.get_user()
+# check that the current user has the board reserved
+# Returns True if user has board reserved
+# Returns False if user does not have board reserved
+#   Also, a message is sent to the user indicating the failure.
+def user_has_board_reserved(req, board_map, operation):
     assigned_to = board_map.get("AssignedTo", "nobody")
+    if req.get_user() == assigned_to:
+        return True
 
-    if user != assigned_to:
-        msg = "Device is not assigned to you. It is assigned to '%s'.\nCannot do- %s operation." % (assigned_to,operation)
-        req.send_api_response_msg(RSLT_FAIL, msg)
-        return 0
-    else:
-        return 1
+    msg = """Device is not assigned to you. It is assigned to '%s'.
+Cannot do %s operation.""" % (assigned_to, operation)
+    req.send_api_response_msg(RSLT_FAIL, msg)
+    return False
 
 def do_status_operation(req, board, board_map, rest):
     if len(rest):
@@ -3671,9 +3675,10 @@ def do_status_operation(req, board, board_map, rest):
 
 
 def do_board_power_operation(req, board, board_map, rest):
-    operation =  rest[0]
-    if do_check_board_permission(req, board, board_map, operation) == 0:
+    operation = "power " + rest[0]
+    if not user_has_board_reserved(req, board_map, operation):
         return
+
     pdu_map = get_connected_resource(req, board_map, "power_controller")
     if not pdu_map:
         msg = "No power controller resource found for board %s" % board
@@ -3849,9 +3854,8 @@ def do_board_release(req, board, board_map, rest):
     return
 
 def do_board_run(req, board, board_map, rest):
-    #check board permission
-    operation = "run"
-    if do_check_board_permission(req, board, board_map, operation) == 0:
+    # check board permission
+    if not user_has_board_reserved(req, board_map, "run"):
         return
 
     # get the command to run
@@ -4059,8 +4063,7 @@ def parse_multipart(data):
 # from the host to the target.
 def do_board_upload(req, board, bmap, rest):
     # check that user has board reserved
-    operation = "upload"
-    if do_check_board_permission(req, board,bmap,operation) == 0:
+    if not user_has_board_reserved(req, bmap, "upload"):
         return
 
     # get data for the upload
@@ -4162,9 +4165,9 @@ def do_board_upload(req, board, bmap, rest):
 # from the target board to the host.
 def do_board_download(req, board, bmap, rest):
     # check that user has board reserved
-    operation = download
-    if do_check_board_permission(req, board, bmap, operation) == 0:
+    if not user_has_board_reserved(req, bmap, "download"):
         return
+
     # get data for the download
 
     compress = req.form.getfirst("compress", "false")
