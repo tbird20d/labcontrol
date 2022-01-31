@@ -92,6 +92,7 @@ except:
 
 VERSION=(0,6,5)
 
+
 SERVER_CONF_FILENAME="/etc/lcserver.conf"
 
 # stub class for storing incoming POST data of type application/json
@@ -3500,6 +3501,7 @@ def exec_command(req, board_map, resource_map, res_cmd):
         return (RSLT_FAIL, msg)
 
     cmd_str = resource_map[res_cmd_str]
+    log_this("cmd_str=%s" % cmd_str)
 
     icmd_str = get_interpolated_str(cmd_str, board_map, resource_map)
     rcode, output = lc_getstatusoutput(req, icmd_str)
@@ -3548,6 +3550,10 @@ def do_board_get_resource(req, board, board_map, rest):
     return
 
 def do_board_camera_operation(req, board, board_map, rest):
+    #check board reservation
+    operation = rest[0]
+    if do_check_board_permission(req, board, board_map, operation) == 0:
+        return
     cam_map = get_connected_resource(req, board_map, "camera")
     if not cam_map:
         msg = "No camera resource found for board %s" % board
@@ -3564,7 +3570,6 @@ def do_board_camera_operation(req, board, board_map, rest):
         filepath = req.config.files_dir + "/" + filename
         d = copy.deepcopy(cam_map)
         d["output"] = filepath
-
         (result, msg) = exec_command(req, board_map, d, action)
         if result == RSLT_FAIL:
             req.send_api_response_msg(result, msg)
@@ -3629,6 +3634,17 @@ def do_board_camera_operation(req, board, board_map, rest):
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
+def do_check_board_permission(req, board, board_map, operation):
+    user = req.get_user()
+    assigned_to = board_map.get("AssignedTo", "nobody")
+
+    if user != assigned_to:
+        msg = "Device is not assigned to you. It is assigned to '%s'.\nCannot do- %s operation." % (assigned_to,operation)
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return 0
+    else:
+        return 1
+
 def do_status_operation(req, board, board_map, rest):
     if len(rest):
         item = rest[0]
@@ -3655,6 +3671,9 @@ def do_status_operation(req, board, board_map, rest):
 
 
 def do_board_power_operation(req, board, board_map, rest):
+    operation =  rest[0]
+    if do_check_board_permission(req, board, board_map, operation) == 0:
+        return
     pdu_map = get_connected_resource(req, board_map, "power_controller")
     if not pdu_map:
         msg = "No power controller resource found for board %s" % board
@@ -3830,13 +3849,9 @@ def do_board_release(req, board, board_map, rest):
     return
 
 def do_board_run(req, board, board_map, rest):
-    # check that user has board reserved
-    user = req.get_user()
-    assigned_to = board_map.get("AssignedTo", "nobody")
-
-    if user != assigned_to:
-        msg = "Device is not assigned to you. It is assigned to '%s'.\nCannot run command." % assigned_to
-        req.send_api_response_msg(RSLT_FAIL, msg)
+    #check board permission
+    operation = "run"
+    if do_check_board_permission(req, board, board_map, operation) == 0:
         return
 
     # get the command to run
@@ -4044,12 +4059,8 @@ def parse_multipart(data):
 # from the host to the target.
 def do_board_upload(req, board, bmap, rest):
     # check that user has board reserved
-    user = req.get_user()
-    assigned_to = bmap.get("AssignedTo", "nobody")
-
-    if user != assigned_to:
-        msg = "Device is not assigned to you. It is assigned to '%s'.\nCannot do upload." % assigned_to
-        req.send_api_response_msg(RSLT_FAIL, msg)
+    operation = "upload"
+    if do_check_board_permission(req, board,bmap,operation) == 0:
         return
 
     # get data for the upload
@@ -4151,14 +4162,9 @@ def do_board_upload(req, board, bmap, rest):
 # from the target board to the host.
 def do_board_download(req, board, bmap, rest):
     # check that user has board reserved
-    user = req.get_user()
-    assigned_to = bmap.get("AssignedTo", "nobody")
-
-    if user != assigned_to:
-        msg = "Device is not assigned to you. It is assigned to '%s'.\nCannot do upload." % assigned_to
-        req.send_api_response_msg(RSLT_FAIL, msg)
+    operation = download
+    if do_check_board_permission(req, board, bmap, operation) == 0:
         return
-
     # get data for the download
 
     compress = req.form.getfirst("compress", "false")
