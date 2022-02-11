@@ -2564,7 +2564,7 @@ def show_web_terminal(req, board):
         # report error starting webterm
         frame_html = """<table width="640" height="480"><tr><td>%s</td></tr></table>""" % req.html_error(msg)
     else:
-        webterm_url = req.config.url_prefix + ":%s/" % port
+        webterm_url = req.config.url_prefix + "/webterm/%s" % port
         frame_html = """<iframe src="%s" width="640" height="480"></iframe>""" % webterm_url
 
     html = """<table border="1" cellpadding="2">

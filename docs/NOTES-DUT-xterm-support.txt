@@ -9,6 +9,9 @@ Here are some notes about xterm support for the DUT
          board page"
        - this should just call stop_webterm(), and then call show_board()
 
+ - add Apache proxy config, to use path instead of proxy
+   - see proxy notes below
+
  - add flexibility to ttyd invocation
    - get ttyd command string from lcserver.conf file
 
@@ -74,6 +77,76 @@ ProxyPassReverse /webterm1 http://localhost:7681
 ProxyPass /webterm2 http://localhost:7682
 ProxyPassReverse /webterm2 http://localhost:7682
 etc.
+
+Note: there's a ws_tunnel module needed to proxy websockets,
+that I wasn't using.  This needs to be enabled also.
+
+=== More notes ===
+This was how ebf did it:
+
+1. Run below set of commands for enabling Apache modules
+(if not already done)
+
+ $ a2enmod rewrite
+ $ a2enmod proxy
+ $ a2enmod proxy_http
+ $ a2enmod proxy_wstunnel
+ $ a2enmod headers
+ $ a2enmod expires
+
+2. Edit Apache {site}.conf settings file which resides
+in /etc/apache2/sites-available/ directory
+
+
+under the VirtualHost section (<VirtualHost *:80> OR <VirtualHost *:443>)
+add the following rewrite rules
+
+    RewriteEngine On
+
+    RewriteCond %{HTTP:Upgrade} websocket [NC]
+    RewriteRule ^/webterm/(.*) ws://127.0.0.1:$1 [P,L]
+    RewriteRule ^/webterm/(.*) http://127.0.0.1:$1 [P]
+
+3. Restart Apache service
+
+ $ sudo systemctl restart apache2
+
+Above settings would allow ttyd instance running on
+http://127.0.0.1:XXXX port to be accessible through the Apache
+instance running over standard 80 port on URL
+http://127.0.0.1/webterm/XXXX.
+
+Where  XXXX  could be any port running ttyd.
+
+-----------------
+Here is some analysis:
+  - about 'RewriteCond %{HTTP:Upgrade} websocket [NC]'
+    - '%{HTTP:Upgrade}' is the Test String
+       - 'websocket' is the Condition pattern
+       - '[NC]' is the flags
+       - if the HTTP header "Upgrade" matches 'websocket', then
+         activate the following rules
+       - [NC] meeans 'no case', which makes the test case-insensitive
+         (for both the test string and the condition pattern)
+   - about 'RewriteRule  ^/webterm/(.*) ws://127.0.0.1:$1 [P,L]'
+       - '^/webterm/(.*)' is the Pattern
+       - 'ws://127.0.0.1:$1' is the Substitution
+       - '[P,L]' are the flags
+       - if the URL path starts with '/webterm/', convert it to a
+         websocket URL to the local host, using the remaining path element
+         as the port
+       - P flag indicates to send the substitution URL as a proxy request
+       - L flag indicates stop processing immediately (don't apply more rules)
+   - about 'RewriteRule  ^/webterm/(.*) http://127.0.0.1:$1 [P]'
+       - '^/console/(.*)' is the Pattern
+       - 'http://127.0.0.1:$1' is the Substitution
+       - '[P]' is the flags
+       - if the URL path starts with '/webterm/', convert it to a
+         http URL to the local host, using the remaining path element
+         as the port
+       - P flag indicates to send the substitution URL as a proxy request
+
+
 
 == pyxtermjs ==
 (not used)
