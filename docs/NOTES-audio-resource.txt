@@ -1,0 +1,39 @@
+Here are some notes about audio resources:
+
+The example resource: resource-cable-creations.json has fields
+for an audio resource.
+
+The commands used to perform capture and put-data are
+ arecord and aplay.
+
+The device_name is used for arecord.
+
+= notes about Tim's raspberry pi =
+I had problems getting aplay to work on the USB sound card device.
+It kept playing through the HDMI sound channel, using the built-in
+brcm sound driver.  I finally disabled the onboard sound hardware
+by editing this line in /boot/config.txt:
+dtparam=audio=off
+
+(changing the '=on' in the line to '=off'), and
+rebooting.
+
+I wrote an audio test, that does an aplay on the DUT (raspberry pi), and
+an arecord on the receiving device.  In my case, this was another USB
+sound card connected to my host.  This was because I didn't have the right
+cable for my front mic jack (which was a 4-pole jack).
+
+There were lots of issues getting the capture command working under the
+web server.  I am on an Ubuntu system, using pulseaudio as the sound server.
+I have a special user account on my machine, called 'lc'.  I had to put this
+user account in the 'audio', 'pulse', 'www-data', and 'pulse-access' groups
+so that the lc account would have permission to communicate with the
+pulseaudio server, as well as permission to write to the output file
+provided by the lcserver.py CGI script, when the capture operation was
+requested by the client.
+
+The test is at: example-tests, and should be runnable from any client.
+It requires a pre-generated tone file.  It should be considered a prototype,
+as there it currently no actual comparison of the played and received
+files to see if there were any errors in playback (or reception).
+
