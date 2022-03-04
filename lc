@@ -188,7 +188,7 @@ a message will be provided.
 "get-resource": ("Get a resource associated with a board.",
     """Usage: lc {board} get-resource {resource_type} [{feature-str}]
   Get a resource associated with a board.  The resource type can
-  be one of: "power-measurement","serial","camera".
+  be one of: "power-measurement","serial","camera", "audio".
 
   The resource can then be to perform an action related to the board.
 
@@ -288,6 +288,27 @@ ex2: token=$(lc logitech camera start 60)
      url=$(lc logitech camera get-ref $token)
      lc logitech camera get-ref $token -o movie.mp4
      lc logitech camera delete $token
+"""),
+
+"audio": ("Perform a audio operation using a resource.",
+    """Usage: lc <resource> audio {operation}
+  Perform a audio operation on a board.
+
+  Operations:
+    start             Start capturing audio data, using the
+                      indicated resource.  lc will output a string which
+                      is a token that can be used to control this instance
+                      of audio capture (that is, to stop, get or delete
+                      the audio data).
+    stop <token>      Stop capturing audio data.
+    get-data <token> [-o <outfile>]  Return the captured audio data.
+                      Data is put to stdout,  unless '-o <outfile>' is used.
+    delete <token>    Delete the captured audio data, on the server.
+
+ex: token=$(lc sound-card1 audio start)
+    lc sound-card1 audio stop $token
+    lc sound-card1 audio get-data $token >sound-file.mp3
+    lc sound-card1 audio delete $token
 """),
 
 "run": ("Run a command on a board",
@@ -1615,7 +1636,18 @@ def do_serial(conf, options, cmd):
         except:
             error_out("Missing captured from server.")
 
-        print(data)
+        # support -o argument to put data into a file
+        if options and options[0] == "-o":
+            try:
+                out_filename = options[1]
+            except:
+                error_out("Missing filename to output data to")
+            out = open(out_filename, "wb")
+            out.write(data)
+            out.close()
+        else:
+            print(data)
+
         return
     if operation == "put-data":
         print("Data was put successfully.")
@@ -1755,6 +1787,106 @@ def do_camera(conf, options, cmd):
     # this seems unlikely, given the checks above
     # but be thorough in error handling
     error_out("Invalid operation '%s' for camera command" % operation)
+
+# this is almost verbatim from do_serial - should try
+# to find a way to coalesce these.
+def do_audio(conf, options, cmd):
+    # resource is a required first argument
+    try:
+        resource = options[0]
+        del options[0]
+    except:
+        error_out("No resource specified for audio operation\n" + \
+                "Please specify a resource associated with this board\n" + \
+                "try 'lc list resources'.")
+
+    # figure out what power operation we're performing
+    # should be one of 'start', 'stop', 'get-data', 'delete'
+    try:
+        operation = options[0].lower()
+        del options[0]
+    except:
+        error_out("No audio operation specified.\n" + \
+                "Please specify one of 'start', 'stop', 'get-data', or 'delete'.")
+
+    if operation not in ["start", "stop", "get-data", "delete", "put-data"]:
+        error_out("Invalid audio operation specified.\n" + \
+                "Please specify one of 'start', 'stop', 'get-data', or 'delete'.")
+
+    url_op  = { "start": "start-capture", "stop": "stop-capture", "get-data": "get-data", "delete": "delete", "put-data": "put-data" }[operation]
+
+    url = conf.API_URL_BASE+"api/v0.2/resources/%s/audio/%s" % (resource, url_op)
+    headers = { "Authorization": "token " + conf.auth_token }
+
+    if operation in ["stop", "get-data", "delete"]:
+        try:
+            token = options[0]
+            del options[0]
+        except:
+            error_out("No token provided for '%s' operation.\n" % operation)
+        url += "/%s" % token
+        resp = requests.get(url, headers=headers)
+    elif operation == "put-data":
+        # read data to put, from standard input
+        data = sys.stdin.read()
+        # TRB: FIXTHIS - need to specify raw data header here
+        resp = requests.post(url, headers=headers, data=data)
+    else:
+        resp = requests.get(url, headers=headers)
+
+    if resp.status_code != 200:
+        error_out("Cannot perform audio %s operation on server" % operation )
+
+    resp_data = resp.json()
+
+    try:
+        result = resp_data["result"]
+    except:
+        error_out("Malformed response from server. Missing 'result'. resp=%s" % resp_data)
+
+    if result != RSLT_OK:
+        # print error
+        try:
+            reason = resp_data["message"]
+        except:
+            reason = "for unknown reasons"
+        error_out("Could not do operation 'audio %s'. From server:\n %s" % (operation, reason))
+
+    # operation was performed, result was "success"
+
+    # report status depending on operation
+    if operation == "start":
+        # output token to user
+        try:
+            token = resp_data["data"]
+        except:
+            error_out("Missing data capture token from server.")
+
+        print(token)
+        return
+
+    if operation == "stop":
+        print("Capture was stopped.")
+        return
+    if operation == "delete":
+        print("Capture was deleted from server.")
+        return
+    if operation == "get-data":
+        # write json capture data to stdout
+        try:
+            data = resp_data["data"]
+        except:
+            error_out("Missing captured from server.")
+
+        print(data)
+        return
+    if operation == "put-data":
+        print("Data was put successfully.")
+        return
+
+    # this seems unlikely given the checks above
+    # but be thorough in error handling
+    error_out("Invalid operation '%s' for audio command" % operation)
 
 
 def main():
@@ -1905,6 +2037,11 @@ def main():
     if command in ["camera"]:
         do_camera(conf, options, command)
         sys.exit(0)
+
+    if command == "audio":
+        do_audio(conf, options, command)
+        sys.exit(0)
+
 
     if command == "run":
         do_run(conf, options)

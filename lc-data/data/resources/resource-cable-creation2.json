@@ -1,0 +1,21 @@
+{
+    "baud_rate": "115200",
+    "board": "rpi3-2",
+    "board_feature": "usb-audio",
+    "device_name": "hw:CARD=Device,DEV=0",
+    "capture_cmd_test": "arecord -D %(device_name)s -f %(format)s -r %(rate)s -t au %(logfile)s",
+    "capture_cmd_alt": "sshpass -plc ssh lc@10.0.1.61 arecord -D %(device_name)s -r %(rate)s -t au %(logfile)s",
+    "capture_cmd": "sshpass -plc ssh lc@10.0.1.61 arecord -D %(device_name)s -r %(rate)s %(logfile)s",
+    "config_cmd": "echo Not supported yet.",
+    "description": "Cable Creations USB sound card, on timdesk",
+    "format": "S16_LE",
+    "name": "cable-creation2",
+    "put_cmd": "aplay -D %(device_name)s -f %(format)s -r %(rate)s %(datafile)s",
+    "put_cmd_alt": "cat %(datafile)s >/tmp/put_data_result",
+    "res_host": "timdesk",
+    "rate": "44100",
+    "status_cmd": "",
+    "type": [
+        "audio"
+    ]
+}
