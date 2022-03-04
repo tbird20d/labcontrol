@@ -66,22 +66,11 @@ where login_cmd comes from board-bbb.json, and has the value:
 sshpass -p %(password)s ssh -q -o UserKnownHostsFile=/dev/null -o "StrictHostKeyChecking no" -x %(user)s@%(ip_addr)s
 
 
-== Apache proxypass ==
-Configure apache to proxy the ttd sessions, so that the user
-doesn't need to.  This doesn't appear to work with websockets.
+== Apache proxy for ttyd ==
+Configure apache to rewrite the ttyd sessions, and proxy the URLS
+for ttyd so that the user can access the ttyd session through the
+labcontrol server.
 
-Could use proxypass like this:
-
-ProxyPass /webterm1 http://localhost:7681
-ProxyPassReverse /webterm1 http://localhost:7681
-ProxyPass /webterm2 http://localhost:7682
-ProxyPassReverse /webterm2 http://localhost:7682
-etc.
-
-Note: there's a ws_tunnel module needed to proxy websockets,
-that I wasn't using.  This needs to be enabled also.
-
-=== More notes ===
 This was how ebf did it:
 
 1. Run below set of commands for enabling Apache modules
