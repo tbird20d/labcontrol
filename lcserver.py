@@ -1403,6 +1403,14 @@ def board_form(req, action, bmap):
             html += gen_select_form_element(field, pm_resources, pm)
             html += "</td></tr>\n"
             continue
+        if field == "audio_endpoints":
+            html += "<tr><td>audio_endpoints:</td><td>\n"
+            audio_resources = get_resource_list_by_type(req, "audio")
+            audio_resources.append("None")
+            audios = bmap.get(field, [])
+            html += gen_list_form_element(field, audio_resources, audios)
+            html += "</td></tr>\n"
+            continue
 
         value = bmap.get(field, "")
         html += """<tr><td>%s:</td><td align="right"><INPUT type="text" name="%s" value="%s" width=40></input></td></tr>
@@ -1611,7 +1619,8 @@ resource_field_list = ["description", "res_host", "res_user", "res_password",
         "type", "res_ip", "video_filename_extension", "reservation",
         "sampling_interval", "serial_dev",
         "power_port", "board", "board_feature",
-        "live_stream_url", "video_filename_extension"]
+        "live_stream_url", "video_filename_extension",
+        "format", "rate", "device_name"]
 
 resource_cmd_field_list = ["on_cmd", "off_cmd", "status_cmd",
         "reboot_cmd", "capture_cmd", "image_cmd", "video_cmd",
@@ -1622,9 +1631,9 @@ resource_known_fields = resource_field_list + resource_cmd_field_list
 resource_known_fields.append("name")
 
 res_types = ["power-controller", "power-measurement", "serial", "camera",
-        "canbus", "server"]
+        "canbus", "server", "audio"]
 
-fields_that_are_lists = ["type", "serial_endpoints"]
+fields_that_are_lists = ["type", "serial_endpoints", "audio_outputs"]
 
 pc_cmds = ["on_cmd", "off_cmd", "status_cmd", "reboot_cmd"]
 pm_cmds = ["start_cmd", "stop_cmd"]
@@ -1633,6 +1642,7 @@ canbus_cmds = ["config_cmd", "start_cmd", "stop_cmd", "put_cmd"]
 camera_cmds = ["image_cmd", "video_cmd", "image_capture_cmd",
                 "config_cmd", "start_cmd", "stop_cmd",
                 "live_stream_start", "live_stream_stop"]
+audio_cmds = ["config_cmd", "start_cmd", "stop_cmd", "put_cmd"]
 server_cmds = ["start_cmd", "stop_cmd"]
 
 def do_view_resource_config(req):
@@ -2534,29 +2544,54 @@ def start_webterm_process(req, board):
 
     return (port, msg)
 
+# return non-empty message string on error, otherwise None on success
 def stop_webterm_process(req, board):
     proc_data = read_proc_data(req)
-    pd_key = "webterm=%s" % board
-    token = pd_key
+    pd_key = "webterm-%s" % board
 
     try:
         pid = proc_data[pd_key]["pid"]
     except KeyError:
-        log_this("Error: Could not find pid for process '%s'" % pd_key)
-        pid = 0
+        msg = "Error: Could not find pid for process '%s'" % pd_key
+        log_this(msg)
+        return msg
 
-    if pid:
-        os.kill(pid, signal.SIGTERM)
+    os.kill(pid, signal.SIGTERM)
 
-        # remove data files
-        capture_stdout = open("/tmp/capture-stdout-" + token, "wb")
-        capture_stderr = open("/tmp/capture-stderr-" + token, "wb")
+    # remove data files
+    cout_file = "/tmp/capture-stdout-" + pd_key
+    if os.path.exists(cout_file):
+        dlog_this("Removing webterm stdout file %s" % cout_file)
+        os.remove(cout_file)
 
-        del(proc_data[pd_key])
-        write_proc_data(req, proc_data)
+    cerr_file = "/tmp/capture-stderr-" + pd_key
+    msg = ""
+    if os.path.exists(cerr_file):
+        stderr = open(cerr_file, "r").read()
+        if stderr:
+            msg = "stderr output from webterm command: '%s'" % stderr
+            log_this(msg)
+        dlog_this("Removing webterm stderr file %s" % cerr_file)
+        os.remove(cerr_file)
+
+    # Finally, remove the entry from the process database
+    del(proc_data[pd_key])
+    write_proc_data(req, proc_data)
+
+    return msg
 
 
 def show_web_terminal(req, board):
+    #check board reservation
+    bmap = get_object_map(req, "board", board)
+    operation = "webterm show"
+    if not user_has_board_reserved(req, bmap, operation, False):
+        msg = "Error: You do not have board '%s' reserved." % board
+        req.html.append(req.html_error(msg))
+        board_link = req.config.url_base + "/boards/" + board
+        req.html.append("""<p><a href="%s">Back to board '%s' page</a>""" % (board_link, board))
+        return
+
     # start webterm process, if it's not already running
     port, msg = start_webterm_process(req, board)
 
@@ -2575,7 +2610,17 @@ def show_web_terminal(req, board):
 """ % (board, frame_html)
     html += "</table>"
     req.html.append(html)
-    # FIXTHIS - show a 'back' url with an action that stops the webterm
+
+    # FIXTHIS - show a link that stops the webterm
+    webterm_stop_button = req.config.url_base + "/api/v0.2/devices/%s/webterm/stop" % bmap["name"]
+    req.html.append("""
+<p><form method="get" action="%s">
+<input type="submit" name="button" value="Stop Web Terminal">
+</form>
+""" % webterm_stop_button)
+
+    board_link = req.config.url_base + "/boards/" + board
+    req.html.append("""<p><a href="%s">Back to board '%s' page</a>""" % (board_link, board))
 
 # NOTE: we're inside a table cell here
 def show_board_info(req, bmap):
@@ -2678,10 +2723,17 @@ def show_board_info(req, bmap):
 """ % live_stream_stop_link)
 
     if lc:
-        login_link = req.config.url_base + "/webterm/%s" % (bmap["name"])
+        webterm_link = req.config.url_base + "/webterm/%s" % (bmap["name"])
         req.html.append("""
         <a href="%s">Web terminal</a>
-""" % login_link)
+""" % webterm_link)
+
+        webterm_stop_button = req.config.url_base + "/api/v0.2/devices/%s/webterm/stop" % bmap["name"]
+        req.html.append("""
+<form method="get" action="%s">
+<input type="submit" name="button" value="Stop Web Terminal">
+</form>
+""" % webterm_stop_button)
 
     req.html.append("</ul>")
 
@@ -3523,7 +3575,7 @@ def do_board_get_resource(req, board, board_map, rest):
     res_type = rest[0]
     del(rest[0])
     if res_type not in ["power-controller", "power-measurement", "serial",
-            "canbus", "camera"]:
+            "canbus", "camera", "audio"]:
         msg = "Error: invalid resource type '%s'" % res_type
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
@@ -3635,18 +3687,47 @@ def do_board_camera_operation(req, board, board_map, rest):
         req.send_api_response_msg(RSLT_FAIL, msg)
         return
 
+def do_board_webterm_operation(req, board, board_map, rest):
+    #check board reservation
+    operation = "webterm " + rest[0]
+    if not user_has_board_reserved(req, board_map, operation):
+        return
+
+    try:
+        action = rest[0]
+    except IndexError:
+        msg = "Missing action for webterm request"
+        log_this(msg)
+        req.send_api_response_msg(RSLT_FAIL, msg)
+
+    if action == "stop":
+        msg = stop_webterm_process(req, board)
+        if msg.startswith("stderr output"):
+            result = RSLT_OK
+            # save stderr output from ttyd for debugging
+            log_this("stderr output from webterm process is:\n" + msg)
+        else:
+            result = RSLT_FAIL
+        req.send_api_response_msg(result, msg)
+        return
+    else:
+        msg = "webterm action '%s' not supported" % action
+        req.send_api_response_msg(RSLT_FAIL, msg)
+        return
+
 # check that the current user has the board reserved
 # Returns True if user has board reserved
 # Returns False if user does not have board reserved
 #   Also, a message is sent to the user indicating the failure.
-def user_has_board_reserved(req, board_map, operation):
+def user_has_board_reserved(req, board_map, operation, return_api_response=True):
     assigned_to = board_map.get("AssignedTo", "nobody")
     if req.get_user() == assigned_to:
         return True
 
     msg = """Device is not assigned to you. It is assigned to '%s'.
 Cannot do %s operation.""" % (assigned_to, operation)
-    req.send_api_response_msg(RSLT_FAIL, msg)
+    if return_api_response:
+        req.send_api_response_msg(RSLT_FAIL, msg)
     return False
 
 def do_status_operation(req, board, board_map, rest):
@@ -4309,6 +4390,10 @@ def return_api_board_action(req, board, action, rest):
         do_status_operation(req, board, board_map, rest)
         return
 
+    elif action == "webterm":
+        do_board_webterm_operation(req, board, board_map, rest)
+        return
+
     msg = "action '%s' not supported (rest='%s')" % (action, rest)
     req.send_api_response_msg(RSLT_FAIL, msg)
 
@@ -4490,6 +4575,8 @@ def get_capture_filepath(req, res_type, res_map, token):
     # but defer this feature for later
     cdir = req.config.files_dir + "/"
 
+
+    ext = ".txt"
     if res_type == "camera":
         try:
             ext = resource_map["video_filename_extension"]
@@ -4498,8 +4585,11 @@ def get_capture_filepath(req, res_type, res_map, token):
             ext = ".mp4"
 
         return cdir + VIDEO_FILENAME_FMT % (res_map["name"], token, ext)
-    else:
-        return cdir + CAPTURE_FILENAME_FMT % (res_map["name"], token, ".txt")
+
+    if res_type == "audio":
+        ext = ".au"
+
+    return cdir + CAPTURE_FILENAME_FMT % (res_map["name"], token, ext)
 
 
 # returns token, reason
@@ -4757,7 +4847,7 @@ def put_data(req, res_type, resource_map, rest):
 
 
 # rest is a list of the rest of the path
-# support res_types are: power-measurement, serial, camera
+# supported res_types are: power-measurement, serial, camera, audio
 def return_api_resource_action(req, resource, res_type, rest):
     resources = get_object_list(req, "resource")
     if resource not in resources:
@@ -4774,7 +4864,7 @@ def return_api_resource_action(req, resource, res_type, rest):
     operation = rest[0]
     del(rest[0])
 
-    if res_type in ["serial", "camera"] and operation == "set-config":
+    if res_type in ["serial", "camera", "audio"] and operation == "set-config":
         # convert set-config form data to a simple map
         config_map = {}
         for key in list(req.form.keys()):
@@ -4789,7 +4879,7 @@ def return_api_resource_action(req, resource, res_type, rest):
             req.send_api_response(RSLT_OK)
         return
 
-    if res_type in ["power-measurement", "serial", "camera"]:
+    if res_type in ["power-measurement", "serial", "camera", "audio"]:
         if operation in ["stop-capture", "get-data", "get-ref", "delete"]:
             try:
                 token = rest[0]
@@ -4989,6 +5079,12 @@ def find_resource(req, board, feature):
 # {resource} serial delete -> api/v0.2/resources/{resource}/serial/delete/token
 # {resource} serial put-data -> POST api/v0.2/resources/{resource}/serial/put-data
 # {resource} serial set-config -> POST api/v0.2/resources/{resource}/serial/set-config
+# {resource} audio start -> api/v0.2/resources/{resource}/audio/start-capture
+# {resource} audio stop -> api/v0.2/resources/{resource}/audio/stop-capture/token
+# {resource} audio get-data -> api/v0.2/resources/{resource}/audio/get-data/token
+# {resource} audio delete -> api/v0.2/resources/{resource}/audio/delete/token
+# {resource} audio put-data -> POST api/v0.2/resources/{resource}/audio/put-data
+# {resource} audio set-config -> POST api/v0.2/resources/{resource}/audio/set-config
 
 def do_api(req):
     dlog_this("in do_api")
@@ -5078,7 +5174,7 @@ def do_api(req):
             else:
                 res_type = parts[2]
                 rest = parts[3:]
-                if res_type in ["power-measurement", "serial", "camera", "canbus"]:
+                if res_type in ["power-measurement", "serial", "camera", "canbus", "audio"]:
                     return_api_resource_action(req, resource, res_type, rest)
                     return
 
