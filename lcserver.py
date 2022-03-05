@@ -3822,8 +3822,13 @@ def clear_reservation(req, board_map):
     board_map["start_time"] = "0-0-0_0:0:0"
     board_map["end_time"] = "0-0-0_0:0:0"
 
+    board = board_map["name"]
+
     # save data back to json file
-    msg = save_object_data(req, "board", board_map["name"], board_map)
+    msg = save_object_data(req, "board", board, board_map)
+
+    # terminate web terminal process, if any (ignore any errors)
+    stop_webterm_process(req, board)
     return msg
 
 def do_board_assign(req, board, board_map, rest):
