@@ -1801,24 +1801,24 @@ def do_audio(conf, options, cmd):
                 "try 'lc list resources'.")
 
     # figure out what power operation we're performing
-    # should be one of 'start', 'stop', 'get-data', 'delete'
+    # should be one of 'start', 'stop', 'get-ref', 'delete'
     try:
         operation = options[0].lower()
         del options[0]
     except:
         error_out("No audio operation specified.\n" + \
-                "Please specify one of 'start', 'stop', 'get-data', or 'delete'.")
+                "Please specify one of 'start', 'stop', 'get-ref', or 'delete'.")
 
-    if operation not in ["start", "stop", "get-data", "delete", "put-data"]:
+    if operation not in ["start", "stop", "get-ref", "delete", "put-data"]:
         error_out("Invalid audio operation specified.\n" + \
-                "Please specify one of 'start', 'stop', 'get-data', or 'delete'.")
+                "Please specify one of 'start', 'stop', 'get-ref', or 'delete'.")
 
-    url_op  = { "start": "start-capture", "stop": "stop-capture", "get-data": "get-data", "delete": "delete", "put-data": "put-data" }[operation]
+    url_op  = { "start": "start-capture", "stop": "stop-capture", "get-ref": "get-ref", "delete": "delete", "put-data": "put-data" }[operation]
 
     url = conf.API_URL_BASE+"api/v0.2/resources/%s/audio/%s" % (resource, url_op)
     headers = { "Authorization": "token " + conf.auth_token }
 
-    if operation in ["stop", "get-data", "delete"]:
+    if operation in ["stop", "get-ref", "delete"]:
         try:
             token = options[0]
             del options[0]
@@ -1871,12 +1871,12 @@ def do_audio(conf, options, cmd):
     if operation == "delete":
         print("Capture was deleted from server.")
         return
-    if operation == "get-data":
-        # write json capture data to stdout
+    if operation == "get-ref":
+        # write url reference data to stdout
         try:
             data = resp_data["data"]
         except:
-            error_out("Missing captured from server.")
+            error_out("Missing captured reference from server.")
 
         print(data)
         return
