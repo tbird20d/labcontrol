@@ -4706,20 +4706,26 @@ def stop_capture(req, res_type, resource_map, token, rest):
     if not pid:
         return "Cannot find in-progress capture for %s for resource '%s'" % (action, resource)
 
-    max_sigterm_retry=10
+    sigterm_retry_wait = [0.5, 0.5, 1, 1, 1.5, 2, 2, 2]
 
     try:
         count = 0
-        while count < max_sigterm_retry:
+        while count < len(sigterm_retry_wait):
             dlog_this("Sending SIGTERM to pid %d" % pid)
             os.kill(pid, signal.SIGTERM)
-            time.sleep(0.2)
+            time.sleep(sigterm_retry_wait[count])
             count += 1
-        dlog_this("Exceeded max_sigterm_retry count of %d" % max_sigterm_retry)
+        log_this("Exceeded max sigterm retries")
+        log_this("Sending SIGKILL to pid %d" % pid)
+        os.kill(pid, signal.SIGKILL)
+        sleep(5)
+        os.kill(pid, signal.SIGKILL)
+        log_this("SIGKILL failed - process %d is still running!!" % pid)
     except OSError as err:
         err = str(err)
         if err.find("No such process") > 0:
             if os.path.exists(pidfile):
+                dlog_this("Removing pidfile %s" % pidfile)
                 os.remove(pidfile)
 
     # check for program error (stderr is non-empty)
