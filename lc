@@ -711,7 +711,7 @@ def do_list(conf, options):
         obj_type = options[0]
         del options[0]
     except:
-        error_out("No object type specified for list operation" + \
+        error_out("No object type specified for list operation\n" + \
                 "Please specify either 'boards', 'devices', or 'resources'.")
 
     if obj_type not in ["boards", "devices", "resources"]:
