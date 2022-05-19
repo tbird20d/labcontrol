@@ -1265,8 +1265,12 @@ def do_release(conf, options):
 
 # show the status of a board
 def do_status(conf, options):
-    board = options[0]
-    del options[0]
+    try:
+        board = options[0]
+        del options[0]
+    except IndexError:
+        error_out("No board specified for status operation\n" + \
+                "Please specify a board from 'lc list boards'.")
 
     url = conf.API_URL_BASE+"api/v0.2/devices/%s/status/" % (board)
     try:
