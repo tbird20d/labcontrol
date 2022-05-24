@@ -1929,7 +1929,7 @@ def main():
 
     # parse arguments
     command_list = list(command_help.keys())
-    command_list.extend(["--help", "-h", "pm", "run2"])
+    command_list.extend(["--help", "-h", "pm", "run2", "ssh"])
     options = []
 
     board = ""
@@ -1977,6 +1977,8 @@ def main():
             continue
 
         options.append(arg)
+
+    dprint("Executing '%s' command, with options=%s" % (command, options))
 
     # if no command recognized, return
     if not command:
@@ -2061,6 +2063,17 @@ def main():
         do_audio(conf, options, command)
         sys.exit(0)
 
+    # check for 'ssh' qualifier on run, upload, download commands and ignore
+    # it if present
+    if command == "ssh":
+        try:
+            command = options[1]
+        except IndexError:
+            error_out("Missing arguments for command related to 'ssh'")
+
+        del options[1]
+        # fall through to check for ssh-related commands
+        dprint("New command is '%s' and options are: %s" % (command, options))
 
     if command == "run":
         do_run(conf, options)
