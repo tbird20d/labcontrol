@@ -4747,6 +4747,7 @@ def stop_capture(req, res_type, resource_map, token, rest):
     return msg
 
 # returns data, reason
+# data is in json-compatible format
 # data is empty on failure, and reason is a string with error message
 # otherwise, sends data from capture.  Captured data may be transformed
 # from its original format, but in all cases should be sent as json.
@@ -4759,7 +4760,7 @@ def get_captured_data(req, res_type, resource_map, token, rest):
         return (None, "Cannot find capture file for resource '%s', token %s" % (resource, token))
 
     try:
-        fd = open(capture_file, "r")
+        fd = open(capture_file, "rb")
         capture_data = fd.read()
         fd.close()
     except IOError:
