@@ -301,13 +301,15 @@ ex2: token=$(lc logitech camera start 60)
                       of audio capture (that is, to stop, get or delete
                       the audio data).
     stop <token>      Stop capturing audio data.
-    get-data <token> [-o <outfile>]  Return the captured audio data.
-                      Data is put to stdout,  unless '-o <outfile>' is used.
+    get-ref <token> [-o <outfile>]  Return a web reference to the captured
+                      audio data.  The reference is put to stdout, unless
+                      '-o <outfile>' is used, in which case the data is
+                      downloaded and stored in the specified filename.
     delete <token>    Delete the captured audio data, on the server.
 
 ex: token=$(lc sound-card1 audio start)
     lc sound-card1 audio stop $token
-    lc sound-card1 audio get-data $token >sound-file.mp3
+    lc sound-card1 audio get-ref $token -o sound-file.wav
     lc sound-card1 audio delete $token
 """),
 
@@ -1876,14 +1878,27 @@ def do_audio(conf, options, cmd):
         print("Capture was deleted from server.")
         return
     if operation == "get-ref":
-        # write url reference data to stdout
         try:
-            data = resp_data["data"]
+            url_path = resp_data["data"]
         except:
             error_out("Missing captured reference from server.")
 
-        print(data)
-        return
+        # write url reference to stdout, unless user specifies an output file
+        if not len(options):
+            print(url_path)
+            return
+
+        if len(options) > 1 and options[0] == "-o":
+            # download the file, instead of just printing the path
+            output_file = options[1]
+            resp = requests.get(url_path)
+            with open(output_file, 'wb') as f:
+                f.write(resp.content)
+            print("Data was saved to %s." % output_file)
+            return
+        else:
+            error_out("Unrecognized options for audio get-ref operation: %s" % str(options))
+
     if operation == "put-data":
         print("Data was put successfully.")
         return
